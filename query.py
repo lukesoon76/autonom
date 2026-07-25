@@ -16,6 +16,7 @@ The retrieval/answer functions here are also imported by app.py (the Streamlit
 UI), so they are written to be reusable and to accept pre-loaded models.
 """
 import argparse
+import math
 import os
 import textwrap
 
@@ -69,20 +70,53 @@ def build_where(region: str | None, city: str | None) -> dict | None:
     return None
 
 
-def retrieve(question, k=6, region=None, city=None, embedder=None, coll=None):
-    """Semantic search; returns a list of hit dicts {doc, meta, distance}."""
+def haversine_km(lat1, lng1, lat2, lng2):
+    """Great-circle distance in km between two lat/lng points."""
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def retrieve(question, k=6, region=None, city=None, embedder=None, coll=None,
+             near=None, radius_km=None):
+    """Semantic search; returns hit dicts {doc, meta, distance[, distance_km]}.
+
+    When `near=(lat,lng)` is given, we over-fetch candidates, drop any without
+    coordinates or outside `radius_km`, sort by proximity, and return the top k.
+    Run enrich_geo.py first so chunks carry lat/lng.
+    """
     embedder = embedder or get_embedder()
     coll = coll or get_collection()
+    n = max(k * 8, 40) if near else k
     res = coll.query(
         query_embeddings=embedder.encode([question]).tolist(),
-        n_results=k,
+        n_results=n,
         where=build_where(region, city),
     )
     docs = res.get("documents", [[]])[0]
     metas = res.get("metadatas", [[]])[0]
     dists = res.get("distances", [[]])[0] or [None] * len(docs)
-    return [{"doc": d, "meta": m, "distance": dist}
+    hits = [{"doc": d, "meta": m, "distance": dist}
             for d, m, dist in zip(docs, metas, dists)]
+
+    if near:
+        lat0, lng0 = near
+        geo_hits = []
+        for h in hits:
+            lat, lng = h["meta"].get("lat"), h["meta"].get("lng")
+            if lat is None or lng is None:
+                continue
+            dkm = haversine_km(lat0, lng0, lat, lng)
+            if radius_km is None or dkm <= radius_km:
+                h["distance_km"] = dkm
+                geo_hits.append(h)
+        geo_hits.sort(key=lambda h: h["distance_km"])
+        return geo_hits[:k]
+
+    return hits
 
 
 def build_context(hits: list[dict]):
@@ -127,9 +161,22 @@ def main():
     ap.add_argument("--k", type=int, default=6, help="snippets to retrieve")
     ap.add_argument("--region", choices=["SG", "MY"], default=None)
     ap.add_argument("--city", default=None)
+    ap.add_argument("--near", default=None,
+                    help='"lat,lng" to rank by proximity (run enrich_geo.py first)')
+    ap.add_argument("--radius-km", type=float, default=None, dest="radius_km",
+                    help="only include places within this many km of --near")
     args = ap.parse_args()
 
-    hits = retrieve(args.question, args.k, args.region, args.city)
+    near = None
+    if args.near:
+        try:
+            lat_s, lng_s = args.near.split(",")
+            near = (float(lat_s), float(lng_s))
+        except ValueError:
+            ap.error('--near must look like "3.1390,101.6869"')
+
+    hits = retrieve(args.question, args.k, args.region, args.city,
+                    near=near, radius_km=args.radius_km)
     if not hits:
         print("No matches yet — run ingest.py first, or widen your filters.")
         return
@@ -148,7 +195,8 @@ def main():
         print("\n(No ANTHROPIC_API_KEY set — showing raw retrieved snippets)\n")
         for h in hits:
             meta = h["meta"]
-            print(f"• {meta['source']} — {meta.get('title','') or meta['url']}")
+            near_tag = f"  [{h['distance_km']:.1f} km]" if "distance_km" in h else ""
+            print(f"• {meta['source']} — {meta.get('title','') or meta['url']}{near_tag}")
             print(textwrap.fill(h["doc"][:280], width=88, initial_indent="   ",
                                 subsequent_indent="   "))
             print(f"   {meta['url']}\n")

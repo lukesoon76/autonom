@@ -35,6 +35,8 @@ import chromadb
 from protego import Protego
 from sentence_transformers import SentenceTransformer
 
+from content_filter import looks_sponsored
+
 USER_AGENT = "FoodRAG/1.0 (personal research bot; respects robots.txt)"
 REQUEST_DELAY = 1.5            # seconds between fetches to the same host
 CHUNK_CHARS = 900
@@ -260,11 +262,14 @@ def get_collection(db_path: str = DB_PATH):
 
 
 def ingest_one(url, source, region, city, embedder, coll, *,
-               title="", date="", priority=99, min_chars=300) -> dict:
+               title="", date="", priority=99, min_chars=300,
+               skip_sponsored=True) -> dict:
     """Fetch ONE article URL politely (robots + throttle), extract, chunk,
     embed, and upsert. Returns a status dict — never raises for a bad page.
 
-    status ∈ {"ok","no_url","blocked","fetch_failed","too_short"}.
+    status ∈ {"ok","no_url","blocked","fetch_failed","too_short","sponsored"}.
+    Sponsored/PR posts are skipped by default (see content_filter); pass
+    skip_sponsored=False to store them anyway (tagged sponsored=True).
     """
     if not url:
         return {"status": "no_url", "chunks": 0, "url": url, "title": title}
@@ -278,6 +283,11 @@ def ingest_one(url, source, region, city, embedder, coll, *,
         return {"status": "too_short", "chunks": 0, "url": url, "title": title}
 
     title = title or _title_from_html(html) or url
+    sponsored, reason = looks_sponsored(title, text)
+    if sponsored and skip_sponsored:
+        return {"status": "sponsored", "chunks": 0, "url": url,
+                "title": title, "reason": reason}
+
     pieces = chunk(text)
     ids = [stable_id(url, i) for i in range(len(pieces))]
     metas = [{
@@ -288,6 +298,7 @@ def ingest_one(url, source, region, city, embedder, coll, *,
         "title": title,
         "date": date,
         "priority": priority,
+        "sponsored": bool(sponsored),
         "ingested": datetime.now(timezone.utc).isoformat(),
     } for _ in pieces]
     coll.upsert(ids=ids, documents=pieces,
@@ -309,7 +320,7 @@ def collect_source_items(s: dict, limit: int) -> list[dict]:
 
 def ingest_user_source(url, *, kind="auto", region="", city="",
                        source="User URL", url_filter="", limit=15,
-                       embedder=None, coll=None) -> dict:
+                       embedder=None, coll=None, skip_sponsored=True) -> dict:
     """Ingest a user-provided website/URL through the SAME polite pipeline.
 
     kind: "auto" (sniff), "page" (one article), "rss" (feed), "sitemap".
@@ -334,7 +345,8 @@ def ingest_user_source(url, *, kind="auto", region="", city="",
     results, added = [], 0
     for it in items:
         r = ingest_one(it["url"], source, region, city, embedder, coll,
-                       title=it.get("title", ""), date=it.get("date", ""), priority=2)
+                       title=it.get("title", ""), date=it.get("date", ""),
+                       priority=2, skip_sponsored=skip_sponsored)
         results.append(r)
         added += r["chunks"]
     return {"kind": kind, "added_chunks": added, "results": results}
@@ -352,7 +364,43 @@ def load_sources(path: str, region: str | None, min_priority: int | None) -> lis
     return srcs
 
 
-def run(region, limit, min_priority, discover):
+def prune_sponsored(coll) -> int:
+    """Delete already-stored sponsored/PR articles.
+
+    Detection is per-article (matching ingest-time semantics): if ANY chunk of a
+    URL trips the filter, every chunk of that URL is removed — a disclosure
+    phrase may sit in only one chunk, but the whole article is still PR.
+    """
+    got = coll.get(include=["metadatas", "documents"])
+    ids, metas, docs = got["ids"], got["metadatas"], got["documents"]
+
+    flagged = {}                      # url -> (title, reason)
+    by_url = {}                       # url -> [chunk ids]
+    for i, m in enumerate(metas):
+        u = m.get("url", "")
+        by_url.setdefault(u, []).append(ids[i])
+        sponsored, reason = looks_sponsored(m.get("title", ""), docs[i])
+        if sponsored and u not in flagged:
+            flagged[u] = (m.get("title", ""), reason)
+
+    to_delete = [cid for u in flagged for cid in by_url.get(u, [])]
+    if not to_delete:
+        print("No sponsored/PR articles found — nothing to prune.")
+        return 0
+    print(f"Pruning {len(to_delete)} chunks from {len(flagged)} article(s):")
+    for _url, (title, reason) in sorted(flagged.items(), key=lambda kv: kv[1][0]):
+        print(f"    − {title[:66]}   <{reason}>")
+    coll.delete(ids=to_delete)
+    print(f"\nDone. Collection now holds {coll.count()} chunks.")
+    return len(to_delete)
+
+
+def run(region, limit, min_priority, discover,
+        keep_sponsored=False, prune=False):
+    if prune:
+        prune_sponsored(get_collection())
+        return
+
     sources = load_sources(SOURCES_PATH, region, min_priority)
 
     if discover:
@@ -382,11 +430,14 @@ def run(region, limit, min_priority, discover):
         for it in collect_source_items(s, limit):
             r = ingest_one(it["url"], s["name"], s["region"], s.get("city", ""),
                            embedder, coll, title=it.get("title", ""),
-                           date=it.get("date", ""), priority=s.get("priority", 99))
+                           date=it.get("date", ""), priority=s.get("priority", 99),
+                           skip_sponsored=not keep_sponsored)
             if r["status"] == "ok":
                 print(f"    + {r['title'][:60] or r['url'][:60]}  ({r['chunks']} chunks)")
             elif r["status"] == "blocked":
                 print(f"    robots.txt disallows {it['url']} — skipping")
+            elif r["status"] == "sponsored":
+                print(f"    ~ sponsored/PR, skipped: {r['title'][:56]}")
 
     print(f"\nDone. Collection now holds {coll.count()} chunks at {DB_PATH}")
 
@@ -400,8 +451,13 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=15, help="max articles per source")
     ap.add_argument("--discover", action="store_true",
                     help="probe/repair feeds then exit (no ingest)")
+    ap.add_argument("--keep-sponsored", action="store_true", dest="keep_sponsored",
+                    help="store sponsored/PR posts too (default: skip them)")
+    ap.add_argument("--prune-sponsored", action="store_true", dest="prune_sponsored",
+                    help="delete already-stored sponsored/PR chunks, then exit")
     args = ap.parse_args()
     try:
-        run(args.region, args.limit, args.min_priority, args.discover)
+        run(args.region, args.limit, args.min_priority, args.discover,
+            keep_sponsored=args.keep_sponsored, prune=args.prune_sponsored)
     except KeyboardInterrupt:
         sys.exit(130)

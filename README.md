@@ -125,12 +125,57 @@ from ingest import ingest_user_source
 ingest_user_source("https://example.com/best-nasi-lemak/", region="MY", city="Kuala Lumpur")
 ```
 
+## Skipping sponsored / PR content
+
+These feeds mix real reviews with brand PR ("Samsung Unveils…", mooncake gift
+sets, airline advertorials). `content_filter.py` flags those **precision-first**
+(explicit sponsorship disclosures + unambiguous corporate-announcement titles),
+and `ingest.py` skips them by default:
+
+```bash
+python ingest.py                    # sponsored/PR skipped automatically
+python ingest.py --keep-sponsored   # store them too (tagged sponsored=True)
+python ingest.py --prune-sponsored  # delete already-stored PR from the DB, then exit
+```
+
+Kept chunks carry a `sponsored` metadata flag. Tune the phrase/title lists in
+`content_filter.py` — err toward keeping a borderline post over dropping a real
+review.
+
+## Geo "nearby"
+
+Give places coordinates, then rank by distance:
+
+```bash
+python enrich_geo.py                 # extract GPS coords printed in posts (free, no key)
+python enrich_geo.py --places        # also geocode Address: lines (needs GOOGLE_PLACES_API_KEY)
+python query.py "supper" --near "3.1390,101.6869" --radius-km 5
+```
+
+`enrich_geo.py` writes `lat`/`lng`/`geo_source` onto each article's chunks (idempotent).
+`query.py --near "lat,lng" [--radius-km N]` over-fetches candidates, drops those
+without coords or outside the radius, and sorts by proximity (distance shown).
+The Streamlit sidebar has the same under **📍 Near a point**. ChiefEater and
+KY Speaks place pages (which print `GPS:` lines) are the best seed.
+
 ## Keep it fresh (daily refresh)
 
 Websites are safe to refresh **daily** — ingestion is idempotent, and RSS/
 sitemaps only surface *recent* posts, so a nightly run catches new articles with
 no duplication. Minute-level "real-time" buys nothing for blogs that publish a
-few times a day. Refresh daily at 04:30, priority-1 and priority-2 sources only:
+few times a day.
+
+**macOS (launchd — native, recommended).** A LaunchAgent runs the priority-1&2
+refresh daily at 04:30:
+
+```bash
+# installed at ~/Library/LaunchAgents/com.chiefepicure.refresh.plist
+launchctl load -w ~/Library/LaunchAgents/com.chiefepicure.refresh.plist   # enable
+launchctl start com.chiefepicure.refresh                                   # run now (test)
+launchctl unload ~/Library/LaunchAgents/com.chiefepicure.refresh.plist     # disable
+```
+
+**Linux (cron).** Equivalent nightly line:
 
 ```cron
 30 4 * * * cd ~/ChiefEpicure && .venv/bin/python ingest.py --min-priority 2 >> ~/ChiefEpicure/ingest.log 2>&1
@@ -167,13 +212,17 @@ Please keep these guarantees intact if you extend the crawler.
 
 ## Stretch goals
 
-1. **Geo "nearby"** — `enrich_geo.py`: geocode place mentions (Google Places),
-   store `lat`/`lng` in metadata, add `--near "lat,lng" --radius_km` to
-   `query.py`. ChiefEater's address-bearing pages are the best seed.
+1. ~~**Geo "nearby"**~~ — ✅ shipped (`enrich_geo.py` + `query.py --near`).
+   Next: geocode more via Places, and per-*place* coords for listicles (one
+   article can mention many restaurants → currently one coord per article).
 2. **Recency weighting** — boost chunks whose `date` is within the last N months.
-3. **Streamlit UI** — a chat box wrapping `query.py`'s retrieve + answer.
+3. ~~**Streamlit UI**~~ — ✅ shipped (`app.py`).
 4. **Cross-blog dedup** — when several sources cover the same restaurant, merge
    in the answer and list all sources.
+5. **Content quality** — the PR filter (`content_filter.py`) is precision-first;
+   a broader food-vs-nonfood classifier would catch more soft-PR listicles.
+6. **Per-place region tags** — `region` is per-source today, so an SG blog's KL
+   writeup is tagged SG; infer region from the place/address instead.
 
 ## Project layout
 
@@ -183,9 +232,11 @@ ChiefEpicure/
     sources.yaml            # source registry (RSS / sitemap / manual)
     curated_authority.csv   # hand-filled Michelin / 50 Best rows
   ingest.py                 # RSS + sitemap + page -> extract -> chunk -> embed -> Chroma
+  content_filter.py         # sponsored/PR detection (used by ingest + prune)
   curate_authority.py       # load curated_authority.csv into the same collection
-  query.py                  # retrieve (+filters) -> answer via Claude -> cite
-  app.py                    # Streamlit web UI (search + add-your-own-URL)
+  enrich_geo.py             # add lat/lng to chunks (GPS extraction + optional geocode)
+  query.py                  # retrieve (+filters, +--near) -> answer via Claude -> cite
+  app.py                    # Streamlit web UI (search + geo + add-your-own-URL)
   requirements.txt
   .env.example
   chroma_db/                # created on first ingest (git-ignored)

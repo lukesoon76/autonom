@@ -109,6 +109,12 @@ with st.sidebar:
     city = st.text_input("City contains", placeholder="e.g. Kuala Lumpur / Singapore")
     k = st.slider("Results (k)", 3, 12, 6)
 
+    with st.expander("📍 Near a point (geo)"):
+        st.caption("Rank by distance to a lat,lng. Run `enrich_geo.py` first so "
+                   "places carry coordinates.")
+        near_str = st.text_input("lat, lng", placeholder="3.1390, 101.6869")
+        radius_km = st.slider("Radius (km)", 1, 50, 10)
+
     st.divider()
     if query.has_api_key():
         st.success("Claude answers: **on** (API key found)", icon="✅")
@@ -123,7 +129,10 @@ find_tab, add_tab = st.tabs(["🔎  Find food", "➕  Add a source"])
 def render_hit(h, i):
     m = h["meta"]
     title = m.get("title") or m.get("url", "")
-    badges = (f"<span class='badge'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
+    dist = (f"<span class='badge' style='background:#3a2b1a;color:#ffb37a'>"
+            f"📍 {h['distance_km']:.1f} km</span>") if "distance_km" in h else ""
+    badges = (f"{dist}"
+              f"<span class='badge'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
               f"<span class='badge'>{m.get('city','')}</span>"
               f"<span class='badge'>{m.get('source','')}</span>")
     snippet = (h["doc"][:320] + "…") if len(h["doc"]) > 320 else h["doc"]
@@ -152,9 +161,20 @@ with find_tab:
     if go and q.strip():
         reg = None if region == "All" else region
         cty = city.strip() or None
+        near = None
+        if near_str.strip():
+            try:
+                a, b = near_str.split(",")
+                near = (float(a), float(b))
+            except ValueError:
+                st.warning('“Near” must look like `3.1390, 101.6869` — ignoring it.')
         with st.spinner("Searching the corpus…"):
             hits = query.retrieve(q, k=k, region=reg, city=cty,
-                                  embedder=_embedder(), coll=coll)
+                                  embedder=_embedder(), coll=coll,
+                                  near=near, radius_km=radius_km if near else None)
+        if near and not hits:
+            st.info("No geo-tagged places within that radius. Widen the radius, or "
+                    "run `enrich_geo.py` to add coordinates.", icon="📍")
         if not hits:
             st.warning("No matches — try widening the filters or ingesting more sources.")
         else:
