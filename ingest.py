@@ -20,6 +20,7 @@ DB fresh.
 """
 import argparse
 import hashlib
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -119,10 +120,8 @@ def throttle(url: str) -> None:
     _last_hit[host] = time.time()
 
 
-def fetch(url: str, timeout: int = 20) -> str | None:
-    if not allowed_by_robots(url):
-        print(f"    robots.txt disallows {url} — skipping")
-        return None
+def http_get(url: str, timeout: int = 20) -> str | None:
+    """Throttled GET with our User-Agent. No robots check (caller's job)."""
     throttle(url)
     try:
         r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
@@ -131,6 +130,14 @@ def fetch(url: str, timeout: int = 20) -> str | None:
     except Exception as e:
         print(f"    fetch failed: {e}")
         return None
+
+
+def fetch(url: str, timeout: int = 20) -> str | None:
+    """robots-gated + throttled GET (returns None if disallowed or failed)."""
+    if not allowed_by_robots(url):
+        print(f"    robots.txt disallows {url} — skipping")
+        return None
+    return http_get(url, timeout)
 
 
 # ── source readers ──────────────────────────────────────────────────────────
@@ -234,6 +241,105 @@ def stable_id(url: str, idx: int) -> str:
     return hashlib.sha1(f"{url}#{idx}".encode()).hexdigest()
 
 
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def _title_from_html(html: str) -> str:
+    m = _TITLE_RE.search(html or "")
+    return " ".join(m.group(1).split()) if m else ""
+
+
+# ── reusable single-article ingest (used by CLI *and* the app) ───────────────
+def get_embedder() -> SentenceTransformer:
+    return SentenceTransformer(EMBED_MODEL)
+
+
+def get_collection(db_path: str = DB_PATH):
+    client = chromadb.PersistentClient(path=db_path)
+    return client.get_or_create_collection(COLLECTION)
+
+
+def ingest_one(url, source, region, city, embedder, coll, *,
+               title="", date="", priority=99, min_chars=300) -> dict:
+    """Fetch ONE article URL politely (robots + throttle), extract, chunk,
+    embed, and upsert. Returns a status dict — never raises for a bad page.
+
+    status ∈ {"ok","no_url","blocked","fetch_failed","too_short"}.
+    """
+    if not url:
+        return {"status": "no_url", "chunks": 0, "url": url, "title": title}
+    if not allowed_by_robots(url):
+        return {"status": "blocked", "chunks": 0, "url": url, "title": title}
+    html = http_get(url)
+    if not html:
+        return {"status": "fetch_failed", "chunks": 0, "url": url, "title": title}
+    text = extract_text(html, url)
+    if not text or len(text) < min_chars:
+        return {"status": "too_short", "chunks": 0, "url": url, "title": title}
+
+    title = title or _title_from_html(html) or url
+    pieces = chunk(text)
+    ids = [stable_id(url, i) for i in range(len(pieces))]
+    metas = [{
+        "source": source,
+        "region": region,
+        "city": city,
+        "url": url,
+        "title": title,
+        "date": date,
+        "priority": priority,
+        "ingested": datetime.now(timezone.utc).isoformat(),
+    } for _ in pieces]
+    coll.upsert(ids=ids, documents=pieces,
+                embeddings=embedder.encode(pieces).tolist(), metadatas=metas)
+    return {"status": "ok", "chunks": len(pieces), "url": url, "title": title}
+
+
+def collect_source_items(s: dict, limit: int) -> list[dict]:
+    """Resolve a source dict to a list of {url,title,date} article items."""
+    t = s["type"]
+    if t == "rss":
+        return urls_from_rss(s["url"], limit)
+    if t == "sitemap":
+        return urls_from_sitemap(s["url"], s.get("url_filter", ""), limit)
+    if t == "page":                       # a single user-supplied article URL
+        return [{"url": s["url"], "title": s.get("name", ""), "date": ""}]
+    return []                             # manual, or unknown → nothing to fetch
+
+
+def ingest_user_source(url, *, kind="auto", region="", city="",
+                       source="User URL", url_filter="", limit=15,
+                       embedder=None, coll=None) -> dict:
+    """Ingest a user-provided website/URL through the SAME polite pipeline.
+
+    kind: "auto" (sniff), "page" (one article), "rss" (feed), "sitemap".
+    Returns {"kind","added_chunks","results":[per-article status dicts]}.
+    Nothing here bypasses robots.txt or rate limits.
+    """
+    embedder = embedder or get_embedder()
+    coll = coll or get_collection()
+
+    if kind == "auto":
+        low = url.lower()
+        if low.rstrip("/").endswith(("/feed", "/rss", "rss2", "atom.xml")) or "?feed=" in low:
+            kind = "rss"
+        elif low.endswith(".xml") or "sitemap" in low:
+            kind = "sitemap"
+        else:
+            kind = "page"
+
+    s = {"type": kind, "url": url, "name": source, "url_filter": url_filter}
+    items = collect_source_items(s, limit)
+
+    results, added = [], 0
+    for it in items:
+        r = ingest_one(it["url"], source, region, city, embedder, coll,
+                       title=it.get("title", ""), date=it.get("date", ""), priority=2)
+        results.append(r)
+        added += r["chunks"]
+    return {"kind": kind, "added_chunks": added, "results": results}
+
+
 # ── main ────────────────────────────────────────────────────────────────────
 def load_sources(path: str, region: str | None, min_priority: int | None) -> list[dict]:
     with open(path) as f:
@@ -264,46 +370,23 @@ def run(region, limit, min_priority, discover):
                       f"'{s.get('url_filter', '')}' in {s['url']}")
         return
 
-    embedder = SentenceTransformer(EMBED_MODEL)
-    client = chromadb.PersistentClient(path=DB_PATH)
-    coll = client.get_or_create_collection(COLLECTION)
+    embedder = get_embedder()
+    coll = get_collection()
 
     for s in sources:
         print(f"\n=== {s['name']} ({s['region']}/{s.get('city','')}) ===")
-        if s["type"] == "rss":
-            items = urls_from_rss(s["url"], limit)
-        elif s["type"] == "sitemap":
-            items = urls_from_sitemap(s["url"], s.get("url_filter", ""), limit)
-        else:
+        if s["type"] not in ("rss", "sitemap", "page"):
             print("    manual source — import via curate_authority.py, skipping here")
             continue
 
-        for it in items:
-            url = it["url"]
-            if not url:
-                continue
-            html = fetch(url)
-            if not html:
-                continue
-            text = extract_text(html, url)
-            if not text or len(text) < 300:
-                continue
-
-            pieces = chunk(text)
-            ids = [stable_id(url, i) for i in range(len(pieces))]
-            metas = [{
-                "source": s["name"],
-                "region": s["region"],
-                "city": s.get("city", ""),
-                "url": url,
-                "title": it["title"],
-                "date": it["date"],
-                "priority": s.get("priority", 99),
-                "ingested": datetime.now(timezone.utc).isoformat(),
-            } for _ in pieces]
-            embeddings = embedder.encode(pieces).tolist()
-            coll.upsert(ids=ids, documents=pieces, embeddings=embeddings, metadatas=metas)
-            print(f"    + {it['title'][:60] or url[:60]}  ({len(pieces)} chunks)")
+        for it in collect_source_items(s, limit):
+            r = ingest_one(it["url"], s["name"], s["region"], s.get("city", ""),
+                           embedder, coll, title=it.get("title", ""),
+                           date=it.get("date", ""), priority=s.get("priority", 99))
+            if r["status"] == "ok":
+                print(f"    + {r['title'][:60] or r['url'][:60]}  ({r['chunks']} chunks)")
+            elif r["status"] == "blocked":
+                print(f"    robots.txt disallows {it['url']} — skipping")
 
     print(f"\nDone. Collection now holds {coll.count()} chunks at {DB_PATH}")
 
