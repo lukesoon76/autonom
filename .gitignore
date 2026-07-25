@@ -2,6 +2,7 @@
 chroma_db/
 .env
 config/user_sources.yaml
+config/user_data.yaml
 __pycache__/
 *.pyc
 ingest.log

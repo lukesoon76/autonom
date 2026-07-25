@@ -12,8 +12,10 @@ A friendly front-end over the same local pipeline used by the CLI:
                  it live through the SAME polite pipeline (robots.txt + rate
                  limits respected; nothing bypasses bot detection).
 """
+import datetime as dt
 import os
 from collections import Counter
+from email.utils import parsedate_to_datetime
 
 import streamlit as st
 
@@ -24,6 +26,7 @@ except ImportError:
     pass
 
 import ingest
+import personal
 import query
 
 st.set_page_config(page_title="ChiefEpicure", page_icon="🍜", layout="wide")
@@ -63,6 +66,72 @@ def db_stats(coll):
         "sources": Counter(m.get("source", "?") for m in metas),
         "regions": Counter(m.get("region", "?") for m in metas),
     }
+
+
+def parse_pub(s: str):
+    """Parse a feed date string to a tz-aware datetime, or None."""
+    if not s:
+        return None
+    try:
+        d = parsedate_to_datetime(s)          # RFC-822 (most RSS)
+        if d:
+            return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+    except Exception:
+        pass
+    try:
+        d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))  # ISO
+        return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+    except Exception:
+        return None
+
+
+def ago(d) -> str:
+    """Human 'time ago' label for a datetime (or '' if unknown)."""
+    if not d:
+        return ""
+    days = (dt.datetime.now(dt.timezone.utc) - d).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    if days < 7:
+        return f"{days}d ago"
+    if days < 30:
+        return f"{days // 7}w ago"
+    if days < 365:
+        return f"{days // 30}mo ago"
+    return d.strftime("%b %Y")
+
+
+@st.cache_data(show_spinner=False)
+def load_articles(count: int):
+    """One record per article (deduped by URL), newest first. `count` is the
+    corpus size — passing it busts the cache whenever the store changes."""
+    coll = _collection()
+    got = coll.get(include=["metadatas", "documents"])
+    ids, metas, docs = got["ids"], got["metadatas"], got["documents"]
+    arts = {}
+    for i, m in enumerate(metas):
+        u = m.get("url", "")
+        if not u:
+            continue
+        first = ids[i] == ingest.stable_id(u, 0)   # opening chunk → best excerpt
+        a = arts.get(u)
+        if a is None:
+            arts[u] = {"url": u, "title": m.get("title", "") or u,
+                       "source": m.get("source", ""), "region": m.get("region", ""),
+                       "city": m.get("city", ""), "image": m.get("image", ""),
+                       "date": m.get("date", ""), "priority": m.get("priority", 99),
+                       "text": docs[i], "_first": first}
+        elif first:
+            a["text"], a["_first"] = docs[i], True
+    out = []
+    for a in arts.values():
+        a["ts"] = parse_pub(a["date"])
+        out.append(a)
+    out.sort(key=lambda a: (a["ts"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc)),
+             reverse=True)
+    return out
 
 
 # ── theme — ChiefEater palette (orange + green), in light and dark ────────────
@@ -140,6 +209,13 @@ h1, h2, h3, .brand {{ font-family: 'Abril Fatface', Georgia, serif !important; }
 .src a{{font-size:.82rem; color:{p['orange_d']}; text-decoration:none; font-weight:700;}}
 .answer{{border-left:4px solid {p['green']}; background:{p['ans_bg']}; border-radius:8px;
         padding:10px 16px; color:{p['ink']};}}
+/* interactive cards use bordered containers */
+[data-testid="stVerticalBlockBorderWrapper"]{{border-color:{p['border']} !important;
+    border-radius:10px; background:{p['card']};}}
+.sechead{{font-family:'Abril Fatface',serif; font-size:1.5rem; color:{p['ink']};
+         margin:.4rem 0 .2rem;}}
+.kpi{{color:{p['muted']}; font-size:.9rem; margin-bottom:.4rem;}}
+.stars{{color:{p['orange']}; letter-spacing:1px;}}
 </style>
 """
 
@@ -164,6 +240,9 @@ st.write("")
 
 coll = _collection()
 stats = db_stats(coll)
+PREFS = personal.get_prefs()
+SAVED = personal.saved_urls()
+NOW = dt.datetime.now(dt.timezone.utc)
 
 with st.sidebar:
     st.divider()
@@ -181,17 +260,30 @@ with st.sidebar:
                 st.write(f"• {name} — {n}")
 
     st.divider()
-    st.subheader("Filters")
-    region = st.radio("Region", ["All", "MY", "SG"], horizontal=True,
+    st.subheader("🏙️ Your city")
+    _reg_opts = ["All", "MY", "SG"]
+    region = st.radio("Region", _reg_opts, horizontal=True,
+                      index=_reg_opts.index(PREFS["region"]) if PREFS.get("region") in _reg_opts else 0,
                       format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "All")
-    city = st.text_input("City contains", placeholder="e.g. Kuala Lumpur / Singapore")
-    k = st.slider("Results (k)", 3, 12, 6)
+    city = st.text_input("City", value=PREFS.get("city", ""),
+                         placeholder="e.g. Kuala Lumpur / Singapore")
+    if st.button("📌 Save as my home city", use_container_width=True):
+        personal.set_prefs(region=region, city=city.strip())
+        st.toast(f"Home set to {city.strip() or region}", icon="🏙️")
+        st.rerun()
 
+    st.divider()
+    st.subheader("Search options")
+    k = st.slider("Results (k)", 3, 12, 6)
     with st.expander("📍 Near a point (geo)"):
         st.caption("Rank by distance to a lat,lng. Run `enrich_geo.py` first so "
                    "places carry coordinates.")
-        near_str = st.text_input("lat, lng", placeholder="3.1390, 101.6869")
+        near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
+                                 placeholder="3.1390, 101.6869")
         radius_km = st.slider("Radius (km)", 1, 50, 10)
+        if st.button("📌 Save as my location", use_container_width=True):
+            personal.set_prefs(latlng=near_str.strip())
+            st.toast("Home location saved", icon="📍")
 
     st.divider()
     if query.has_api_key():
@@ -200,35 +292,109 @@ with st.sidebar:
         st.info("No API key — showing ranked snippets.\nSet `ANTHROPIC_API_KEY` "
                 "in `.env` for written answers.", icon="💡")
 
-find_tab, add_tab = st.tabs(["🔎  Find food", "➕  Add a source"])
+home_tab, find_tab, mylist_tab, add_tab = st.tabs(
+    ["🏠  Today", "🔎  Find food", "❤️  My list", "➕  Add a source"])
 
 
-# ── tab 1: find food ─────────────────────────────────────────────────────────
-def render_hit(h, i):
+# ── shared card renderer (thumbnail + body + Save) ───────────────────────────
+def _thumb(img):
+    tag = (f"<img class='thumb' src='{img}' loading='lazy' "
+           f"onerror=\"this.style.display='none'\"/>") if img else ""
+    return f"<div class='thumb-wrap'><div class='thumb-ph'>🍽️</div>{tag}</div>"
+
+
+def card_from_hit(h):
     m = h["meta"]
-    title = m.get("title") or m.get("url", "")
-    url = m.get("url", "")
-    img = m.get("image") or ""
-    # Placeholder tile sits behind the image; if the image fails to hotlink
-    # (some sites block cross-origin), onerror hides it and the tile shows.
-    img_tag = (f"<img class='thumb' src='{img}' loading='lazy' "
-               f"onerror=\"this.style.display='none'\"/>") if img else ""
-    thumb = f"<div class='thumb-wrap'><div class='thumb-ph'>🍽️</div>{img_tag}</div>"
-    dist = (f"<span class='badge badge-geo'>📍 {h['distance_km']:.1f} km</span>"
-            if "distance_km" in h else "")
-    badges = (f"{dist}"
-              f"<span class='badge badge-reg'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
-              f"<span class='badge'>{m.get('city','')}</span>"
-              f"<span class='badge'>{m.get('source','')}</span>")
-    snippet = (h["doc"][:300] + "…") if len(h["doc"]) > 300 else h["doc"]
-    st.markdown(
-        f"<div class='card'>{thumb}"
-        f"<div class='body'><h4>{i}. <a href='{url}' target='_blank' "
-        f"style='color:inherit;text-decoration:none'>{title}</a></h4>{badges}"
-        f"<div class='snippet'>{snippet}</div>"
-        f"<div class='src'>🔗 <a href='{url}' target='_blank'>{url}</a></div></div></div>",
-        unsafe_allow_html=True,
-    )
+    return {"url": m.get("url", ""), "title": m.get("title", "") or m.get("url", ""),
+            "source": m.get("source", ""), "region": m.get("region", ""),
+            "city": m.get("city", ""), "image": m.get("image", ""),
+            "text": h["doc"], "dist": h.get("distance_km"),
+            "ts": parse_pub(m.get("date", ""))}
+
+
+def render_card(a, key):
+    """One interactive result row: thumbnail · body · Save toggle."""
+    url = a.get("url", "")
+    saved = url in SAVED
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1, 5, 1.3], vertical_alignment="center")
+        c1.markdown(_thumb(a.get("image", "")), unsafe_allow_html=True)
+        bits = []
+        if a.get("dist") is not None:
+            bits.append(f"<span class='badge badge-geo'>📍 {a['dist']:.1f} km</span>")
+        if a.get("ts"):
+            bits.append(f"<span class='badge'>🕘 {ago(a['ts'])}</span>")
+        reg = a.get("region", "")
+        bits.append(f"<span class='badge badge-reg'>{REGION_LABEL.get(reg, reg) or '—'}</span>")
+        if a.get("city"):
+            bits.append(f"<span class='badge'>{a['city']}</span>")
+        bits.append(f"<span class='badge'>{a.get('source','')}</span>")
+        text = (a.get("text", "") or "")[:260]
+        c2.markdown(
+            f"<div class='body'><h4><a href='{url}' target='_blank' "
+            f"style='color:inherit;text-decoration:none'>{a.get('title','')}</a></h4>"
+            f"{''.join(bits)}<div class='snippet'>{text}…</div>"
+            f"<div class='src'>🔗 <a href='{url}' target='_blank'>{url}</a></div></div>",
+            unsafe_allow_html=True)
+        if c3.button("✅ Saved" if saved else "🔖 Save", key=f"sv_{key}",
+                     use_container_width=True):
+            if saved:
+                personal.remove_place(url)
+            else:
+                personal.upsert_place(
+                    url, title=a.get("title", ""), source=a.get("source", ""),
+                    region=a.get("region", ""), city=a.get("city", ""),
+                    image=a.get("image", ""), status="want", ts=NOW.isoformat())
+            st.rerun()
+
+
+# ── tab: Today (aggregate what's new & good) ─────────────────────────────────
+with home_tab:
+    reg = None if region == "All" else region
+    cty = city.strip() or None
+    arts = load_articles(stats["total"])
+    if reg:
+        arts = [a for a in arts if a["region"] == reg]
+    if cty:
+        arts = [a for a in arts if cty.lower() in (a["city"] or "").lower()]
+
+    where = city.strip() or (REGION_LABEL.get(reg, "Malaysia & Singapore") if reg
+                             else "Malaysia & Singapore")
+    fresh_wk = sum(1 for a in arts if a["ts"] and (NOW - a["ts"]).days < 7)
+    st.markdown(f"<div class='sechead'>What's new &amp; good in "
+                f"{where}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='kpi'>🆕 {fresh_wk} fresh this week · "
+                f"📚 {len(arts)} places · updated daily</div>", unsafe_allow_html=True)
+
+    if not arts:
+        st.info("Nothing here yet for this city. Widen the filter, or add a feed "
+                "under **Add a source**.")
+    else:
+        auth = [a for a in arts if a["source"] == "Authority"][:6]
+        if auth:
+            st.markdown("<div class='sechead'>⭐ Michelin &amp; authority picks</div>",
+                        unsafe_allow_html=True)
+            for j, a in enumerate(auth):
+                render_card(a, f"auth_{j}")
+
+        st.markdown("<div class='sechead'>🍜 Fresh finds</div>", unsafe_allow_html=True)
+        dated = [a for a in arts if a["ts"] and a["source"] != "Authority"]
+        undated = [a for a in arts if not a["ts"] and a["source"] != "Authority"]
+        buckets = [("🆕 This week", 0, 7), ("This month", 7, 30), ("Earlier", 30, 10 ** 9)]
+        shown, LIMIT = 0, 24
+        for label, lo, hi in buckets:
+            grp = [a for a in dated if lo <= (NOW - a["ts"]).days < hi][:LIMIT - shown]
+            if not grp:
+                continue
+            st.markdown(f"**{label}**")
+            for j, a in enumerate(grp):
+                render_card(a, f"fresh_{shown + j}")
+            shown += len(grp)
+            if shown >= LIMIT:
+                break
+        if shown == 0 and undated:          # no parseable dates → just show some
+            for j, a in enumerate(undated[:LIMIT]):
+                render_card(a, f"undated_{j}")
 
 
 with find_tab:
@@ -279,8 +445,8 @@ with find_tab:
                     st.markdown(f"<div class='answer'>{reply}</div>", unsafe_allow_html=True)
                     st.divider()
             st.markdown(f"### {len(hits)} sources")
-            for i, h in enumerate(hits, 1):
-                render_hit(h, i)
+            for i, h in enumerate(hits):
+                render_card(card_from_hit(h), f"find_{i}")
 
             seen, lines = set(), []
             for h in hits:
@@ -292,7 +458,84 @@ with find_tab:
                 st.markdown("\n".join(lines))
 
 
-# ── tab 2: add a source ──────────────────────────────────────────────────────
+# ── tab: My list (memory of your reviews) ────────────────────────────────────
+def render_saved(p, key):
+    """A saved place with editable status / rating / note."""
+    url = p.get("url", "")
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 6], vertical_alignment="center")
+        c1.markdown(_thumb(p.get("image", "")), unsafe_allow_html=True)
+        stars = "★" * int(p.get("rating", 0)) + "☆" * (5 - int(p.get("rating", 0)))
+        c2.markdown(
+            f"<div class='body'><h4><a href='{url}' target='_blank' "
+            f"style='color:inherit;text-decoration:none'>{p.get('title','')}</a></h4>"
+            f"<span class='badge badge-reg'>{REGION_LABEL.get(p.get('region',''), p.get('region','')) or '—'}</span>"
+            f"<span class='badge'>{p.get('city','')}</span>"
+            f"<span class='badge'>{p.get('source','')}</span>"
+            f"<span class='stars'>&nbsp;{stars}</span></div>",
+            unsafe_allow_html=True)
+        e1, e2, e3 = st.columns([1.4, 1.6, 0.7], vertical_alignment="bottom")
+        status = e1.radio("Status", ["want", "been"], horizontal=True,
+                          index=0 if p.get("status", "want") == "want" else 1,
+                          format_func=lambda s: "🍽️ Want to go" if s == "want" else "✅ Been",
+                          key=f"stt_{key}")
+        rating = e2.slider("My rating", 0, 5, int(p.get("rating", 0)), key=f"rt_{key}")
+        remove = e3.button("🗑️", key=f"rm_{key}", help="Remove from list")
+        note = st.text_input("My note", value=p.get("note", ""),
+                             placeholder="what I had, what to order next time…",
+                             key=f"nt_{key}")
+        changed = (status != p.get("status", "want") or rating != int(p.get("rating", 0))
+                   or note != p.get("note", ""))
+        if remove:
+            personal.remove_place(url)
+            st.rerun()
+        if changed and st.button("💾 Save review", key=f"sr_{key}", type="primary"):
+            personal.upsert_place(url, status=status, rating=rating, note=note.strip())
+            st.toast("Saved your review", icon="💾")
+            st.rerun()
+
+
+with mylist_tab:
+    places = personal.load_places()
+    if not places:
+        st.info("Your list is empty. Tap **🔖 Save** on any card in **Today** or "
+                "**Find food**, then come back to rate it and jot a note.", icon="❤️")
+    else:
+        want = [p for p in places if p.get("status", "want") == "want"]
+        been = [p for p in places if p.get("status") == "been"]
+        st.markdown(f"<div class='kpi'>❤️ {len(places)} saved · ✅ {len(been)} been · "
+                    f"🍽️ {len(want)} want to go</div>", unsafe_allow_html=True)
+
+        if want:
+            st.markdown("<div class='sechead'>🍽️ Want to go</div>", unsafe_allow_html=True)
+            for i, p in enumerate(want):
+                render_saved(p, f"want_{i}")
+        if been:
+            st.markdown("<div class='sechead'>✅ Been there</div>", unsafe_allow_html=True)
+            for i, p in enumerate(been):
+                render_saved(p, f"been_{i}")
+
+        # ── recommended for you (from your memory) ───────────────────────────
+        st.markdown("<div class='sechead'>✨ Recommended for you</div>",
+                    unsafe_allow_html=True)
+        seed_titles = [p.get("title", "") for p in places if p.get("title")][:6]
+        if not seed_titles:
+            st.caption("Save a few places and I'll suggest similar ones.")
+        else:
+            st.caption("Because you saved: " + ", ".join(t[:30] for t in seed_titles[:3])
+                       + ("…" if len(seed_titles) > 3 else ""))
+            with st.spinner("Finding places that match your taste…"):
+                recs = query.retrieve(" ; ".join(seed_titles), k=12,
+                                      embedder=_embedder(), coll=coll)
+            saved_now = personal.saved_urls()
+            fresh = [h for h in recs if h["meta"].get("url") not in saved_now][:6]
+            if not fresh:
+                st.caption("No new suggestions yet — add more sources to widen the pool.")
+            for i, h in enumerate(fresh):
+                render_card(card_from_hit(h), f"rec_{i}")
+
+
+# ── tab: add a source ────────────────────────────────────────────────────────
 with add_tab:
     st.write("Ingest **your own** website, article, RSS feed, or sitemap into the "
              "same store. It goes through the identical polite pipeline — "

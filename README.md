@@ -110,12 +110,25 @@ For a friendlier front-end over the same pipeline:
 streamlit run app.py
 ```
 
+It's built to feel like an **app**, not a search box — the default screen is a
+daily feed, with search and a personal list alongside.
+
+- **🏠 Today** — *"what's new & good in your city"*: authority (Michelin) picks
+  plus the freshest blog finds, grouped by recency (This week / month / earlier),
+  each an image card with a 🕘 relative date and a **🔖 Save** button. Aggregated
+  from whatever the daily refresh has pulled.
+- **🏙️ Your city** (sidebar) — set a home region/city (and optional lat,lng);
+  it's saved and scopes the Today feed and searches.
+- **❤️ My list** — the app *remembers your reviews*: saved places as **Want to
+  go** / **Been**, with a star rating and a note, all persisted locally. A
+  **✨ Recommended for you** section suggests similar places from what you've
+  saved (Chope-style).
 - **Light / dark toggle** (sidebar → *Appearance*) — both keep ChiefEater's
   orange + green accents.
 - **🔎 Find food** — search box + region/city filters + a results slider; shows
   a cited Claude answer (when a key is set) or ranked snippet **cards with
   thumbnails** (each post's og:image, with an emoji fallback when a site blocks
-  hotlinking), each linking to its source.
+  hotlinking), each linking to its source, and each Save-able to your list.
 - **➕ Add a source** — paste any **website / article / RSS feed / sitemap URL**
   and ingest it live into the same store. It runs through the *identical* polite
   pipeline (robots.txt + rate limits respected, bot detection never bypassed) and
@@ -247,9 +260,11 @@ ChiefEpicure/
   curate_authority.py       # load curated_authority.csv into the same collection
   enrich_geo.py             # add lat/lng to chunks (GPS extraction + optional geocode)
   enrich_media.py           # backfill og:image thumbnails onto existing chunks
+  personal.py               # home city + saved places/reviews (My list)
   query.py                  # retrieve (+filters, +--near) -> answer via Claude -> cite
-  app.py                    # Streamlit web UI (light/dark, thumbnails, geo, add-source)
+  app.py                    # Streamlit app (Today feed · Find · My list · Add source)
   config/user_sources.yaml  # feeds you add in the app (git-ignored; refreshed daily)
+  config/user_data.yaml     # your home city + saved reviews (git-ignored, private)
   requirements.txt
   .env.example
   chroma_db/                # created on first ingest (git-ignored)
