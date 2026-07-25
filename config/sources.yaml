@@ -1,0 +1,153 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FoodRAG source registry — MALAYSIA & SINGAPORE (focused v2)
+#
+# type:
+#   rss     -> machine-readable feed. Cheapest & most reliable. Preferred.
+#   sitemap -> no feed; crawl XML sitemap, filter by url_filter substring.
+#   manual  -> structured lists (Michelin, 50 Best). Import via curated CSV.
+#              Do NOT scrape these; store name/address/stars/cuisine/url only.
+#
+# priority: 1 = ingest first / weight higher in retrieval. 3 = nice-to-have.
+# Feeds marked (verify) use the standard WordPress /feed/ path — run
+# `python ingest.py --discover` to confirm or auto-repair before first ingest.
+# ─────────────────────────────────────────────────────────────────────────────
+
+sources:
+  # ══ MALAYSIA ════════════════════════════════════════════════════════════════
+  - name: ChiefEater
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 1
+    url: https://chiefeater.com/feed/          # (verify)
+    note: >
+      Community reviews across KL, Penang, Johor, Melaka. Individual place pages
+      carry full addresses — ideal seed for geo-enrichment ("nearby").
+  - name: KL Foodie
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 1
+    url: https://klfoodie.com/feed/             # (verify)
+  - name: EatDrinkKL
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 1
+    url: http://eatdrinkkl.blogspot.com/feeds/posts/default?alt=rss
+  - name: Malaysian Foodie
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 2
+    url: https://www.malaysianfoodie.com/feed/  # (verify)
+  - name: KY Speaks
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 2
+    url: https://kyspeaks.com/feed/             # (verify)
+  - name: The Yum List
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 2
+    url: https://www.theyumlist.net/feed/       # (verify)
+  - name: Bangsar Babe
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 3
+    url: https://www.bangsar-babe.com/feed/     # (verify)
+  - name: Wonderful Malaysia
+    region: MY
+    city: Kuala Lumpur
+    type: rss
+    priority: 3
+    url: https://www.wonderfulmalaysia.com/feed/ # (verify)
+  - name: Time Out KL
+    region: MY
+    city: Kuala Lumpur
+    type: sitemap
+    priority: 3
+    url: https://www.timeout.com/kuala-lumpur/sitemap.xml
+    url_filter: /restaurants/
+
+  # ══ SINGAPORE ═══════════════════════════════════════════════════════════════
+  - name: Daniel Food Diary
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 1
+    url: https://danielfooddiary.com/feed/      # (verify)
+  - name: Seth Lui
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 1
+    url: https://sethlui.com/feed/              # (verify)
+  - name: Eatbook
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 1
+    url: https://eatbook.sg/feed/               # (verify)
+  - name: ieatishootipost
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 1
+    url: https://ieatishootipost.sg/feed/       # (verify)
+  - name: The Ordinary Patrons
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 2
+    url: https://ordinarypatrons.com/feed/      # (verify)
+  - name: Singapore Foodie
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 2
+    url: https://singaporefoodie.com/feed/      # (verify)
+  - name: Ladyironchef
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 2
+    url: https://www.ladyironchef.com/feed/     # (verify)
+  - name: Sparklette
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 3
+    url: https://www.sparklette.net/feed/       # (verify)
+  - name: Rubbish Eat Rubbish Grow
+    region: SG
+    city: Singapore
+    type: rss
+    priority: 3
+    url: https://www.rubbisheatrubbishgrow.com/feed/ # (verify)
+  - name: Time Out Singapore
+    region: SG
+    city: Singapore
+    type: sitemap
+    priority: 3
+    url: https://www.timeout.com/singapore/sitemap.xml
+    url_filter: /food-drink/
+
+  # ══ AUTHORITATIVE (manual import — MY & SG scope only) ══════════════════════
+  - name: Michelin Guide (KL/Penang + Singapore)
+    region: MY_SG
+    city: multiple
+    type: manual
+    priority: 1
+    url: https://guide.michelin.com/
+    note: Curate into config/curated_authority.csv (name,city,stars,cuisine,url).
+  - name: Asia's 50 Best (MY/SG entries)
+    region: MY_SG
+    city: multiple
+    type: manual
+    priority: 2
+    url: https://www.theworlds50best.com/asia/en/
+    note: Import ranked MY/SG rows into config/curated_authority.csv.
