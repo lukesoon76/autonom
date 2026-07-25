@@ -17,12 +17,16 @@ sources:
   - name: ChiefEater
     region: MY
     city: Kuala Lumpur
-    type: rss
+    type: sitemap
     priority: 1
-    url: https://chiefeater.com/feed/          # (verify)
+    url: https://chiefeater.com/post-sitemap.xml
+    url_filter: ""      # RSS is disabled site-wide; ingest all posts from the sitemap
     note: >
-      Community reviews across KL, Penang, Johor, Melaka. Individual place pages
-      carry full addresses — ideal seed for geo-enrichment ("nearby").
+      Community reviews across KL, Penang, Johor, Melaka. RSS feed is disabled
+      (all /feed/ paths 301 to the homepage), so we read the Yoast post-sitemap
+      instead. Individual place pages carry full addresses — ideal seed for
+      geo-enrichment ("nearby"). The at_biz_dir-sitemap*.xml files are a business
+      directory if you later want structured address rows.
   - name: KL Foodie
     region: MY
     city: Kuala Lumpur
@@ -58,7 +62,8 @@ sources:
     city: Kuala Lumpur
     type: rss
     priority: 3
-    url: https://www.bangsar-babe.com/feed/     # (verify)
+    url: https://www.bangsar-babe.com/feed/     # DEFUNCT: domain no longer resolves (DNS)
+    note: Domain does not resolve as of 2026-07; kept for the record, yields nothing.
   - name: Wonderful Malaysia
     region: MY
     city: Kuala Lumpur
@@ -70,8 +75,13 @@ sources:
     city: Kuala Lumpur
     type: sitemap
     priority: 3
-    url: https://www.timeout.com/kuala-lumpur/sitemap.xml
-    url_filter: /restaurants/
+    url: https://www.timeout.com/kuala-lumpur/news_sitemap.xml
+    url_filter: /kuala-lumpur/
+    note: >
+      Time Out exposes a rolling news_sitemap per city (the old
+      /<city>/sitemap.xml paths 404). This one is often near-empty; kept for the
+      occasional KL food article. Full back-catalogue lives only in the gzipped
+      master sitemap.
 
   # ══ SINGAPORE ═══════════════════════════════════════════════════════════════
   - name: Daniel Food Diary
@@ -79,7 +89,11 @@ sources:
     city: Singapore
     type: rss
     priority: 1
-    url: https://danielfooddiary.com/feed/      # (verify)
+    url: https://danielfooddiary.com/feed/      # BOT-BLOCKED: returns HTTP 403 (WAF) to all clients
+    note: >
+      Server returns 403 to non-interactive clients (incl. browser UA) as of
+      2026-07. We do not attempt to bypass bot detection, so this yields nothing
+      until it opens up. Kept as a priority-1 target for if/when it does.
   - name: Seth Lui
     region: SG
     city: Singapore
@@ -133,8 +147,12 @@ sources:
     city: Singapore
     type: sitemap
     priority: 3
-    url: https://www.timeout.com/singapore/sitemap.xml
-    url_filter: /food-drink/
+    url: https://www.timeout.com/singapore/news_sitemap.xml
+    url_filter: /singapore/
+    note: >
+      Repaired from the dead /singapore/sitemap.xml. This rolling news_sitemap
+      carries the last ~day of SG articles (food + general); semantic retrieval
+      surfaces the food ones. Low, fresh volume — priority 3 by design.
 
   # ══ AUTHORITATIVE (manual import — MY & SG scope only) ══════════════════════
   - name: Michelin Guide (KL/Penang + Singapore)

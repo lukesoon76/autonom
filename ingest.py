@@ -24,7 +24,6 @@ import sys
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-from urllib.robotparser import RobotFileParser
 from xml.etree import ElementTree
 
 import feedparser
@@ -32,6 +31,7 @@ import requests
 import trafilatura
 import yaml
 import chromadb
+from protego import Protego
 from sentence_transformers import SentenceTransformer
 
 USER_AGENT = "FoodRAG/1.0 (personal research bot; respects robots.txt)"
@@ -53,28 +53,61 @@ FEED_PROBE_PATHS = (
     "/feeds/posts/default?alt=rss",   # Blogger default
 )
 
-_robots_cache: dict[str, RobotFileParser | None] = {}
+_robots_cache: dict[str, object] = {}   # host -> Protego | _ROBOTS_DENY_ALL | None
 _last_hit: dict[str, float] = {}
 
 
 # ── politeness helpers ──────────────────────────────────────────────────────
+_ROBOTS_DENY_ALL = "DENY_ALL"       # sentinel: robots.txt itself was 401/403
+
+
+def _load_robots(scheme: str, host: str):
+    """Fetch and parse a host's robots.txt with OUR descriptive User-Agent.
+
+    We deliberately do NOT let the parser fetch robots.txt itself: the stdlib's
+    RobotFileParser.read() uses urllib's default User-Agent, which many
+    Cloudflare-fronted sites 403. Since a 403 on robots.txt means "disallow all"
+    per the standard, that quirk would block an entire site based on a
+    bot-challenge error page rather than its real policy. Fetching with our own
+    honest UA reads the true rules.
+
+    Parsing uses Protego (the parser Scrapy uses): full wildcard (`*`, `$`) and
+    Allow-vs-Disallow specificity support, unlike the stdlib parser.
+
+    Returns a Protego instance, the _ROBOTS_DENY_ALL sentinel (robots forbidden
+    → deny), or None when robots is unreachable (network error / 5xx) — the
+    caller treats None as cautious-allow, per spec.
+    """
+    robots_url = f"{scheme}://{host}/robots.txt"
+    try:
+        r = requests.get(robots_url, headers={"User-Agent": USER_AGENT}, timeout=15)
+    except Exception:
+        return None                      # unreachable → cautious-allow
+    if r.status_code in (401, 403):
+        return _ROBOTS_DENY_ALL          # access to robots forbidden → deny all
+    if 400 <= r.status_code < 500:
+        return Protego.parse("")         # e.g. 404: no robots published → allow all
+    if r.status_code >= 500:
+        return None                      # server error → treat as unreachable
+    return Protego.parse(r.text)
+
+
 def allowed_by_robots(url: str) -> bool:
     """Check robots.txt for `url`, caching one parser per host.
 
-    If robots.txt is unreachable we default to cautious-allow (the site simply
-    hasn't published rules), but any explicit Disallow is always respected.
+    If robots.txt is unreachable we default to cautious-allow, but any explicit
+    Disallow (and a 401/403-protected robots.txt) is always respected.
     """
-    host = urlparse(url).netloc
+    parts = urlparse(url)
+    host = parts.netloc
     if host not in _robots_cache:
-        rp = RobotFileParser()
-        rp.set_url(f"{urlparse(url).scheme}://{host}/robots.txt")
-        try:
-            rp.read()
-        except Exception:
-            rp = None  # if robots is unreachable, default to cautious-allow
-        _robots_cache[host] = rp
+        _robots_cache[host] = _load_robots(parts.scheme, host)
     rp = _robots_cache[host]
-    return True if rp is None else rp.can_fetch(USER_AGENT, url)
+    if rp is None:
+        return True                      # unreachable → cautious-allow
+    if rp is _ROBOTS_DENY_ALL:
+        return False
+    return rp.can_fetch(url, USER_AGENT)
 
 
 def throttle(url: str) -> None:
@@ -101,19 +134,43 @@ def fetch(url: str, timeout: int = 20) -> str | None:
 
 
 # ── source readers ──────────────────────────────────────────────────────────
+def parse_feed(url: str):
+    """Parse an RSS/Atom feed, always sending our descriptive User-Agent.
+
+    feedparser's built-in fetch uses a generic UA that some hosts (Cloudflare,
+    a few WordPress installs) reject with an empty or error body. We first ask
+    feedparser to fetch *with our UA*; if that still yields no entries, we fetch
+    the bytes ourselves (same honest UA — no browser spoofing, no evasion) and
+    parse those. Returns a feedparser result whose `.entries` may be empty.
+    """
+    parsed = feedparser.parse(url, agent=USER_AGENT)
+    if parsed.entries:
+        return parsed
+    # Fallback: fetch the bytes ourselves with the same UA, then parse them.
+    throttle(url)
+    try:
+        r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        if r.ok and r.content:
+            refetched = feedparser.parse(r.content)
+            if refetched.entries:
+                return refetched
+    except Exception:
+        pass
+    return parsed  # best effort (entries likely empty)
+
+
 def discover_feed(site_url: str) -> str | None:
     """Try common feed paths for a site and return the first that parses."""
     base = f"{urlparse(site_url).scheme}://{urlparse(site_url).netloc}"
     for path in FEED_PROBE_PATHS:
         candidate = base + path
-        parsed = feedparser.parse(candidate)
-        if parsed.entries:
+        if parse_feed(candidate).entries:
             return candidate
     return None
 
 
 def urls_from_rss(url: str, limit: int) -> list[dict]:
-    parsed = feedparser.parse(url)
+    parsed = parse_feed(url)
     out = []
     for e in parsed.entries[:limit]:
         out.append({
@@ -124,16 +181,36 @@ def urls_from_rss(url: str, limit: int) -> list[dict]:
     return out
 
 
-def urls_from_sitemap(url: str, url_filter: str, limit: int) -> list[dict]:
+def _read_sitemap(url: str) -> tuple[str | None, list[str]]:
+    """Fetch a sitemap and return (root_tag_localname, [<loc> texts]).
+
+    Works for both a leaf `<urlset>` (loc = article URLs) and a
+    `<sitemapindex>` (loc = child sitemap URLs).
+    """
     xml = fetch(url)
     if not xml:
-        return []
+        return None, []
     try:
         root = ElementTree.fromstring(xml)
     except ElementTree.ParseError:
-        return []
+        return None, []
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     locs = [loc.text for loc in root.iterfind(".//sm:loc", ns) if loc.text]
+    local = root.tag.split("}")[-1]  # strip {namespace}
+    return local, locs
+
+
+def urls_from_sitemap(url: str, url_filter: str, limit: int) -> list[dict]:
+    kind, locs = _read_sitemap(url)
+    if kind == "sitemapindex":
+        # Descend into child sitemaps, in order, until we have `limit` matches.
+        collected: list[str] = []
+        for child in locs:
+            _, child_locs = _read_sitemap(child)
+            collected.extend(u for u in child_locs if url_filter in u)
+            if len(collected) >= limit:
+                break
+        locs = collected
     filtered = [u for u in locs if url_filter in u][:limit]
     return [{"url": u, "title": "", "date": ""} for u in filtered]
 
@@ -174,14 +251,17 @@ def run(region, limit, min_priority, discover):
 
     if discover:
         for s in sources:
-            if s["type"] != "rss":
-                continue
-            ok = bool(feedparser.parse(s["url"]).entries)
-            if ok:
-                print(f"[ok]      {s['name']}: {s['url']}")
-            else:
-                found = discover_feed(s["url"])
-                print(f"[repair?] {s['name']}: {s['url']} -> {found or 'NOT FOUND'}")
+            if s["type"] == "rss":
+                if parse_feed(s["url"]).entries:
+                    print(f"[ok]      {s['name']}: {s['url']}")
+                else:
+                    found = discover_feed(s["url"])
+                    print(f"[repair?] {s['name']}: {s['url']} -> {found or 'NOT FOUND'}")
+            elif s["type"] == "sitemap":
+                n = len(urls_from_sitemap(s["url"], s.get("url_filter", ""), limit))
+                tag = "[ok]     " if n else "[empty?] "
+                print(f"{tag} {s['name']} (sitemap): {n} urls match "
+                      f"'{s.get('url_filter', '')}' in {s['url']}")
         return
 
     embedder = SentenceTransformer(EMBED_MODEL)
