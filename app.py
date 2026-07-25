@@ -65,25 +65,56 @@ def db_stats(coll):
     }
 
 
-# ── styling ──────────────────────────────────────────────────────────────────
-st.markdown("""
+# ── styling — matched to ChiefEater.com (Abril Fatface / Oxygen / Libre Caslon,
+#    warm orange + fresh green on light grey) ──────────────────────────────────
+ORANGE, ORANGE_D, GREEN, INK = "#fa8b0c", "#d9760a", "#28a800", "#252525"
+st.markdown(f"""
 <style>
-.card{border:1px solid #2c2f36;border-radius:12px;padding:14px 16px;margin-bottom:12px;
-      background:#1418200d;}
-.card h4{margin:0 0 4px 0;font-size:1.02rem;}
-.badge{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:999px;
-       background:#2b3340;color:#cdd6e2;margin-right:6px;}
-.snippet{color:#9aa4b2;font-size:.9rem;line-height:1.45;margin:6px 0;}
-.src a{font-size:.82rem;color:#5aa0ff;text-decoration:none;}
-.answer{border-left:3px solid #ff7a59;padding:6px 0 6px 16px;}
+@import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Oxygen:wght@400;700&display=swap');
+
+html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button {{
+    font-family: 'Oxygen', -apple-system, sans-serif;
+}}
+h1, h2, h3, .brand {{ font-family: 'Abril Fatface', Georgia, serif !important; }}
+
+/* brand wordmark */
+.brand {{ font-size: 2.9rem; line-height: 1.05; color: {INK}; margin: 0; }}
+.brand .chief {{ color: {ORANGE}; }}
+.brand .dot {{ color: {GREEN}; }}
+.tagline {{ font-family: 'Libre Caslon Text', Georgia, serif; font-style: italic;
+           color: #6b6f76; font-size: 1.02rem; margin: 2px 0 2px; }}
+.warn {{ font-family:'Oxygen',sans-serif; font-size:.8rem; color:{ORANGE_D};
+         background:#fff4e6; border:1px solid #ffe0b8; border-radius:8px;
+         padding:3px 10px; display:inline-block; margin-top:6px; }}
+
+/* result cards */
+.card{{border:1px solid #ededed;border-left:4px solid {ORANGE};border-radius:10px;
+      padding:14px 16px;margin-bottom:12px;background:#ffffff;
+      box-shadow:0 1px 3px rgba(20,20,20,.05);}}
+.card h4{{margin:0 0 6px 0;font-family:'Oxygen',sans-serif;font-weight:700;
+         font-size:1.03rem;color:{INK};}}
+.badge{{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:999px;
+       background:#f2f3f5;color:#5b6470;margin:0 6px 4px 0;}}
+.badge-reg{{background:#e8f7e3;color:#1f7a00;}}
+.badge-geo{{background:#fff1de;color:{ORANGE_D};}}
+.snippet{{color:#5b6470;font-size:.9rem;line-height:1.5;margin:6px 0;}}
+.src a{{font-size:.82rem;color:{ORANGE_D};text-decoration:none;font-weight:700;}}
+.answer{{border-left:4px solid {GREEN};background:#f7fbf5;border-radius:8px;
+        padding:10px 16px;color:{INK};}}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── header ───────────────────────────────────────────────────────────────────
-st.title("🍜 ChiefEpicure")
-st.caption("Where to eat in **Malaysia & Singapore** — grounded in food-blog "
-           "reviews you've ingested, always with sources.")
+st.markdown(
+    "<div class='brand'>🍜 <span class='chief'>Chief</span>"
+    "<span style='color:#252525'>Epicure</span><span class='dot'>.</span></div>"
+    "<div class='tagline'>Real food, real reviews — where to eat in "
+    "Malaysia &amp; Singapore, always with sources.</div>"
+    "<div class='warn'>⚠️ Warning: guaranteed to make you hungry.</div>",
+    unsafe_allow_html=True,
+)
+st.write("")
 
 coll = _collection()
 stats = db_stats(coll)
@@ -129,10 +160,10 @@ find_tab, add_tab = st.tabs(["🔎  Find food", "➕  Add a source"])
 def render_hit(h, i):
     m = h["meta"]
     title = m.get("title") or m.get("url", "")
-    dist = (f"<span class='badge' style='background:#3a2b1a;color:#ffb37a'>"
-            f"📍 {h['distance_km']:.1f} km</span>") if "distance_km" in h else ""
+    dist = (f"<span class='badge badge-geo'>📍 {h['distance_km']:.1f} km</span>"
+            if "distance_km" in h else "")
     badges = (f"{dist}"
-              f"<span class='badge'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
+              f"<span class='badge badge-reg'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
               f"<span class='badge'>{m.get('city','')}</span>"
               f"<span class='badge'>{m.get('source','')}</span>")
     snippet = (h["doc"][:320] + "…") if len(h["doc"]) > 320 else h["doc"]

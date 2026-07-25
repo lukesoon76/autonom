@@ -1,0 +1,8 @@
+# Light, appetite-forward theme matched to ChiefEater.com's look & feel:
+# warm orange primary, fresh-green secondary, near-black text on light grey.
+[theme]
+primaryColor = "#fa8b0c"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f2f3f5"
+textColor = "#252525"
+font = "sans serif"
