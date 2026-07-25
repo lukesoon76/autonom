@@ -1,6 +1,7 @@
 .venv/
 chroma_db/
 .env
+config/user_sources.yaml
 __pycache__/
 *.pyc
 ingest.log

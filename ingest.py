@@ -20,6 +20,7 @@ DB fresh.
 """
 import argparse
 import hashlib
+import os
 import re
 import sys
 import time
@@ -45,6 +46,7 @@ EMBED_MODEL = "all-MiniLM-L6-v2"   # local, free, 384-dim
 DB_PATH = "./chroma_db"
 COLLECTION = "food_reviews"
 SOURCES_PATH = "config/sources.yaml"
+USER_SOURCES_PATH = "config/user_sources.yaml"   # feeds added via the app/CLI
 
 # Common feed paths tried by --discover, in order of likelihood.
 FEED_PROBE_PATHS = (
@@ -244,11 +246,26 @@ def stable_id(url: str, idx: int) -> str:
 
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+# og:image / twitter:image, tolerant of attribute order
+_OG_IMG_RES = (
+    re.compile(r'<meta[^>]+(?:property|name)=["\'](?:og:image(?::url)?|twitter:image)'
+               r'["\'][^>]*content=["\']([^"\']+)["\']', re.I),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)='
+               r'["\'](?:og:image(?::url)?|twitter:image)["\']', re.I),
+)
 
 
 def _title_from_html(html: str) -> str:
     m = _TITLE_RE.search(html or "")
     return " ".join(m.group(1).split()) if m else ""
+
+
+def _og_image(html: str) -> str:
+    for rx in _OG_IMG_RES:
+        m = rx.search(html or "")
+        if m and m.group(1).strip().startswith("http"):
+            return m.group(1).strip()
+    return ""
 
 
 # ── reusable single-article ingest (used by CLI *and* the app) ───────────────
@@ -288,6 +305,7 @@ def ingest_one(url, source, region, city, embedder, coll, *,
         return {"status": "sponsored", "chunks": 0, "url": url,
                 "title": title, "reason": reason}
 
+    image = _og_image(html)
     pieces = chunk(text)
     ids = [stable_id(url, i) for i in range(len(pieces))]
     metas = [{
@@ -299,6 +317,7 @@ def ingest_one(url, source, region, city, embedder, coll, *,
         "date": date,
         "priority": priority,
         "sponsored": bool(sponsored),
+        "image": image,
         "ingested": datetime.now(timezone.utc).isoformat(),
     } for _ in pieces]
     coll.upsert(ids=ids, documents=pieces,
@@ -352,10 +371,40 @@ def ingest_user_source(url, *, kind="auto", region="", city="",
     return {"kind": kind, "added_chunks": added, "results": results}
 
 
-# ── main ────────────────────────────────────────────────────────────────────
+# ── source registry (curated + user-added) ──────────────────────────────────
+def load_user_sources() -> list[dict]:
+    """User-added feeds/URLs kept separately so the curated sources.yaml (with
+    its comments) is never rewritten."""
+    if not os.path.exists(USER_SOURCES_PATH):
+        return []
+    with open(USER_SOURCES_PATH) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("sources", []) or []
+
+
+def add_user_source(name, url, *, type="rss", region="", city="",
+                    priority=2, url_filter="") -> dict:
+    """Append (or update) a persistent source so the daily refresh keeps it
+    fresh. Deduped by URL. Returns the saved entry."""
+    srcs = [s for s in load_user_sources() if s.get("url") != url]
+    entry = {"name": name or url, "type": type, "region": region,
+             "city": city, "priority": int(priority), "url": url}
+    if url_filter:
+        entry["url_filter"] = url_filter
+    srcs.append(entry)
+    os.makedirs(os.path.dirname(USER_SOURCES_PATH), exist_ok=True)
+    with open(USER_SOURCES_PATH, "w") as f:
+        f.write("# User-added sources (via the app / add_user_source). Merged\n"
+                "# with config/sources.yaml on every ingest, so the daily refresh\n"
+                "# keeps them updated. Safe to hand-edit.\n")
+        yaml.safe_dump({"sources": srcs}, f, sort_keys=False, allow_unicode=True)
+    return entry
+
+
 def load_sources(path: str, region: str | None, min_priority: int | None) -> list[dict]:
     with open(path) as f:
         srcs = yaml.safe_load(f)["sources"]
+    srcs = srcs + load_user_sources()          # merge user-added feeds
     if region:
         srcs = [s for s in srcs if s.get("region") == region]
     if min_priority is not None:

@@ -65,10 +65,26 @@ def db_stats(coll):
     }
 
 
-# ── styling — matched to ChiefEater.com (Abril Fatface / Oxygen / Libre Caslon,
-#    warm orange + fresh green on light grey) ──────────────────────────────────
-ORANGE, ORANGE_D, GREEN, INK = "#fa8b0c", "#d9760a", "#28a800", "#252525"
-st.markdown(f"""
+# ── theme — ChiefEater palette (orange + green), in light and dark ────────────
+# Accents (orange/green) stay constant; only surfaces/text flip between modes.
+THEME = {
+    "Light": dict(bg="#ffffff", sidebar="#f2f3f5", card="#ffffff", panel="#ffffff",
+                  ink="#252525", muted="#5b6470", border="#ededed", thumb="#f2f3f5",
+                  orange="#fa8b0c", orange_d="#d9760a", green="#28a800",
+                  warn_bg="#fff4e6", warn_bd="#ffe0b8",
+                  reg_bg="#e8f7e3", reg_fg="#1f7a00", geo_bg="#fff1de",
+                  ans_bg="#f7fbf5", chip="#f2f3f5"),
+    "Dark": dict(bg="#14171c", sidebar="#1b1f27", card="#1b1f27", panel="#20252e",
+                 ink="#eef1f5", muted="#9aa4b2", border="#2b3240", thumb="#2b3240",
+                 orange="#ff9e2c", orange_d="#ffb455", green="#5ec53b",
+                 warn_bg="#2a2113", warn_bd="#5a4420",
+                 reg_bg="#12331a", reg_fg="#7ddc5b", geo_bg="#33260f",
+                 ans_bg="#16241a", chip="#20252e"),
+}
+
+
+def build_css(p: dict) -> str:
+    return f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Oxygen:wght@400;700&display=swap');
 
@@ -77,38 +93,68 @@ html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, b
 }}
 h1, h2, h3, .brand {{ font-family: 'Abril Fatface', Georgia, serif !important; }}
 
+/* surfaces (drive the light/dark flip) */
+.stApp, [data-testid="stHeader"] {{ background: {p['bg']}; }}
+[data-testid="stSidebar"] {{ background: {p['sidebar']}; }}
+.stApp, .stMarkdown, p, span, label, li, .stRadio, .stSlider, h1, h2, h3, h4 {{ color: {p['ink']}; }}
+[data-testid="stSidebar"] * {{ color: {p['ink']}; }}
+.stTextInput input, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
+[data-baseweb="select"] > div {{ background: {p['panel']} !important; color: {p['ink']} !important;
+    border-color: {p['border']} !important; }}
+[data-testid="stExpander"] {{ border-color: {p['border']}; }}
+/* example chips (secondary buttons) adapt to theme; primary stays orange */
+.stButton button[kind="secondary"] {{ background:{p['panel']}; color:{p['ink']};
+    border:1px solid {p['border']}; }}
+.stButton button[kind="secondary"]:hover {{ border-color:{p['orange']};
+    color:{p['orange']}; }}
+
 /* brand wordmark */
-.brand {{ font-size: 2.9rem; line-height: 1.05; color: {INK}; margin: 0; }}
-.brand .chief {{ color: {ORANGE}; }}
-.brand .dot {{ color: {GREEN}; }}
+.brand {{ font-size: 2.9rem; line-height: 1.05; color: {p['ink']}; margin: 0; }}
+.brand .chief {{ color: {p['orange']}; }}
+.brand .dot {{ color: {p['green']}; }}
 .tagline {{ font-family: 'Libre Caslon Text', Georgia, serif; font-style: italic;
-           color: #6b6f76; font-size: 1.02rem; margin: 2px 0 2px; }}
-.warn {{ font-family:'Oxygen',sans-serif; font-size:.8rem; color:{ORANGE_D};
-         background:#fff4e6; border:1px solid #ffe0b8; border-radius:8px;
+           color: {p['muted']}; font-size: 1.02rem; margin: 2px 0; }}
+.warn {{ font-family:'Oxygen',sans-serif; font-size:.8rem; color:{p['orange_d']};
+         background:{p['warn_bg']}; border:1px solid {p['warn_bd']}; border-radius:8px;
          padding:3px 10px; display:inline-block; margin-top:6px; }}
 
-/* result cards */
-.card{{border:1px solid #ededed;border-left:4px solid {ORANGE};border-radius:10px;
-      padding:14px 16px;margin-bottom:12px;background:#ffffff;
-      box-shadow:0 1px 3px rgba(20,20,20,.05);}}
-.card h4{{margin:0 0 6px 0;font-family:'Oxygen',sans-serif;font-weight:700;
-         font-size:1.03rem;color:{INK};}}
-.badge{{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:999px;
-       background:#f2f3f5;color:#5b6470;margin:0 6px 4px 0;}}
-.badge-reg{{background:#e8f7e3;color:#1f7a00;}}
-.badge-geo{{background:#fff1de;color:{ORANGE_D};}}
-.snippet{{color:#5b6470;font-size:.9rem;line-height:1.5;margin:6px 0;}}
-.src a{{font-size:.82rem;color:{ORANGE_D};text-decoration:none;font-weight:700;}}
-.answer{{border-left:4px solid {GREEN};background:#f7fbf5;border-radius:8px;
-        padding:10px 16px;color:{INK};}}
+/* result cards (flex: thumbnail + body) */
+.card{{display:flex; gap:14px; align-items:flex-start;
+      border:1px solid {p['border']}; border-left:4px solid {p['orange']};
+      border-radius:10px; padding:14px 16px; margin-bottom:12px;
+      background:{p['card']}; box-shadow:0 1px 3px rgba(0,0,0,.06);}}
+.thumb-wrap{{position:relative; width:104px; height:104px; flex:0 0 104px;
+            border-radius:8px; overflow:hidden; background:{p['thumb']};}}
+.thumb, .thumb-ph{{position:absolute; inset:0; width:100%; height:100%;}}
+.thumb{{object-fit:cover;}}
+.thumb-ph{{display:flex; align-items:center; justify-content:center;
+          font-size:2.1rem; color:{p['muted']};}}
+.card .body{{flex:1; min-width:0;}}
+.card h4{{margin:0 0 6px 0; font-family:'Oxygen',sans-serif; font-weight:700;
+         font-size:1.03rem; color:{p['ink']};}}
+.badge{{display:inline-block; font-size:.72rem; padding:2px 9px; border-radius:999px;
+       background:{p['chip']}; color:{p['muted']}; margin:0 6px 4px 0;}}
+.badge-reg{{background:{p['reg_bg']}; color:{p['reg_fg']};}}
+.badge-geo{{background:{p['geo_bg']}; color:{p['orange_d']};}}
+.snippet{{color:{p['muted']}; font-size:.9rem; line-height:1.5; margin:6px 0;}}
+.src a{{font-size:.82rem; color:{p['orange_d']}; text-decoration:none; font-weight:700;}}
+.answer{{border-left:4px solid {p['green']}; background:{p['ans_bg']}; border-radius:8px;
+        padding:10px 16px; color:{p['ink']};}}
 </style>
-""", unsafe_allow_html=True)
+"""
+
+
+with st.sidebar:
+    mode = st.radio("Appearance", ["Light", "Dark"], horizontal=True, key="theme",
+                    format_func=lambda m: "☀️ Light" if m == "Light" else "🌙 Dark")
+PAL = THEME[mode]
+st.markdown(build_css(PAL), unsafe_allow_html=True)
 
 
 # ── header ───────────────────────────────────────────────────────────────────
 st.markdown(
-    "<div class='brand'>🍜 <span class='chief'>Chief</span>"
-    "<span style='color:#252525'>Epicure</span><span class='dot'>.</span></div>"
+    f"<div class='brand'>🍜 <span class='chief'>Chief</span>"
+    f"<span style='color:{PAL['ink']}'>Epicure</span><span class='dot'>.</span></div>"
     "<div class='tagline'>Real food, real reviews — where to eat in "
     "Malaysia &amp; Singapore, always with sources.</div>"
     "<div class='warn'>⚠️ Warning: guaranteed to make you hungry.</div>",
@@ -120,6 +166,7 @@ coll = _collection()
 stats = db_stats(coll)
 
 with st.sidebar:
+    st.divider()
     st.subheader("Corpus")
     if stats["total"] == 0:
         st.warning("The vector store is empty. Ingest first:\n\n"
@@ -160,17 +207,26 @@ find_tab, add_tab = st.tabs(["🔎  Find food", "➕  Add a source"])
 def render_hit(h, i):
     m = h["meta"]
     title = m.get("title") or m.get("url", "")
+    url = m.get("url", "")
+    img = m.get("image") or ""
+    # Placeholder tile sits behind the image; if the image fails to hotlink
+    # (some sites block cross-origin), onerror hides it and the tile shows.
+    img_tag = (f"<img class='thumb' src='{img}' loading='lazy' "
+               f"onerror=\"this.style.display='none'\"/>") if img else ""
+    thumb = f"<div class='thumb-wrap'><div class='thumb-ph'>🍽️</div>{img_tag}</div>"
     dist = (f"<span class='badge badge-geo'>📍 {h['distance_km']:.1f} km</span>"
             if "distance_km" in h else "")
     badges = (f"{dist}"
               f"<span class='badge badge-reg'>{REGION_LABEL.get(m.get('region',''), m.get('region',''))}</span>"
               f"<span class='badge'>{m.get('city','')}</span>"
               f"<span class='badge'>{m.get('source','')}</span>")
-    snippet = (h["doc"][:320] + "…") if len(h["doc"]) > 320 else h["doc"]
+    snippet = (h["doc"][:300] + "…") if len(h["doc"]) > 300 else h["doc"]
     st.markdown(
-        f"<div class='card'><h4>{i}. {title}</h4>{badges}"
+        f"<div class='card'>{thumb}"
+        f"<div class='body'><h4>{i}. <a href='{url}' target='_blank' "
+        f"style='color:inherit;text-decoration:none'>{title}</a></h4>{badges}"
         f"<div class='snippet'>{snippet}</div>"
-        f"<div class='src'>🔗 <a href='{m.get('url','')}' target='_blank'>{m.get('url','')}</a></div></div>",
+        f"<div class='src'>🔗 <a href='{url}' target='_blank'>{url}</a></div></div></div>",
         unsafe_allow_html=True,
     )
 
@@ -244,7 +300,7 @@ with add_tab:
              "never bypassed.")
 
     with st.form("add_source"):
-        url = st.text_input("URL", placeholder="https://example.com/best-nasi-lemak/")
+        url = st.text_input("URL", placeholder="https://example.com/feed/  or  a single article URL")
         c1, c2, c3 = st.columns(3)
         kind = c1.selectbox("Type", ["auto", "page", "rss", "sitemap"],
                             help="auto = sniff from the URL. page = one article. "
@@ -252,17 +308,23 @@ with add_tab:
         reg2 = c2.selectbox("Region", ["MY", "SG", ""], index=0)
         city2 = c3.text_input("City", placeholder="Kuala Lumpur")
         c4, c5 = st.columns(2)
-        label = c4.text_input("Source label", value="User URL")
+        label = c4.text_input("Source label", value="")
         url_filter = c5.text_input("Sitemap URL filter (optional)",
                                    placeholder="/restaurants/")
         limit = st.slider("Max articles (feeds/sitemaps)", 1, 30, 10)
-        submitted = st.form_submit_button("Ingest", type="primary")
+        save = st.checkbox("📌 Keep updated daily — add this feed to the scheduled "
+                           "refresh", value=True,
+                           help="Saves it to config/user_sources.yaml, which the "
+                                "daily launchd/cron job re-ingests (priority 2).")
+        submitted = st.form_submit_button("Add & ingest", type="primary")
 
     if submitted and url.strip():
+        u = url.strip()
+        src_label = label.strip() or (u.split("/")[2] if "://" in u else "User URL")
         with st.spinner(f"Fetching politely (≥{ingest.REQUEST_DELAY}s/host)…"):
             out = ingest.ingest_user_source(
-                url.strip(), kind=kind, region=reg2, city=city2.strip(),
-                source=label.strip() or "User URL", url_filter=url_filter.strip(),
+                u, kind=kind, region=reg2, city=city2.strip(),
+                source=src_label, url_filter=url_filter.strip(),
                 limit=limit, embedder=_embedder(), coll=coll)
         added = out["added_chunks"]
         n_ok = sum(1 for r in out["results"] if r["status"] == "ok")
@@ -274,6 +336,19 @@ with add_tab:
             st.warning(f"No new content ingested (resolved as `{out['kind']}`).")
         if n_blocked:
             st.info(f"{n_blocked} URL(s) skipped — disallowed by robots.txt.", icon="🤖")
+
+        if save:
+            resolved = out["kind"]
+            if resolved == "page":
+                st.info("Saved as a single **page** — the daily job will re-check "
+                        "just this one URL. Add the site's **feed** or **sitemap** "
+                        "to keep pulling *new* posts.", icon="📌")
+            entry = ingest.add_user_source(
+                src_label, u, type=resolved, region=reg2, city=city2.strip(),
+                priority=2, url_filter=url_filter.strip())
+            st.success(f"📌 Saved to the daily refresh as **{entry['name']}** "
+                       f"(`{entry['type']}`, priority {entry['priority']}).")
+
         with st.expander("Per-URL detail"):
             for r in out["results"]:
                 icon = {"ok": "✅", "blocked": "🤖", "fetch_failed": "⚠️",
@@ -281,3 +356,21 @@ with add_tab:
                 st.write(f"{icon} `{r['status']}` — {r.get('title') or r['url']} "
                          f"({r['chunks']} chunks)")
         st.caption("Switch to **Find food** — your new content is searchable now.")
+
+    # currently-saved user feeds (part of the daily refresh)
+    user_srcs = ingest.load_user_sources()
+    st.divider()
+    st.markdown(f"**📌 Your saved feeds — refreshed daily ({len(user_srcs)})**")
+    if not user_srcs:
+        st.caption("None yet. Add a feed or sitemap above and keep "
+                   "“Keep updated daily” ticked.")
+    else:
+        for s in user_srcs:
+            st.markdown(
+                f"- **{s.get('name','')}** · `{s.get('type','')}` · "
+                f"{REGION_LABEL.get(s.get('region',''), s.get('region','') or '—')} · "
+                f"priority {s.get('priority','')}  \n"
+                f"  <span style='color:{PAL['muted']};font-size:.82rem'>{s.get('url','')}</span>",
+                unsafe_allow_html=True)
+        st.caption("Managed in `config/user_sources.yaml`. The scheduled job runs "
+                   "`ingest.py --min-priority 2`, so priority-1&2 feeds refresh daily.")

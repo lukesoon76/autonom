@@ -110,13 +110,18 @@ For a friendlier front-end over the same pipeline:
 streamlit run app.py
 ```
 
+- **Light / dark toggle** (sidebar → *Appearance*) — both keep ChiefEater's
+  orange + green accents.
 - **🔎 Find food** — search box + region/city filters + a results slider; shows
-  a cited Claude answer (when a key is set) or ranked snippet cards, each linking
-  to its source.
+  a cited Claude answer (when a key is set) or ranked snippet **cards with
+  thumbnails** (each post's og:image, with an emoji fallback when a site blocks
+  hotlinking), each linking to its source.
 - **➕ Add a source** — paste any **website / article / RSS feed / sitemap URL**
   and ingest it live into the same store. It runs through the *identical* polite
   pipeline (robots.txt + rate limits respected, bot detection never bypassed) and
-  is idempotent, so re-adding never duplicates.
+  is idempotent, so re-adding never duplicates. Tick **“Keep updated daily”** to
+  save the feed to `config/user_sources.yaml` so the scheduled refresh keeps
+  pulling new posts (see below); the tab lists your saved feeds.
 
 The same "add your own URL" capability is available headlessly:
 
@@ -164,6 +169,12 @@ Websites are safe to refresh **daily** — ingestion is idempotent, and RSS/
 sitemaps only surface *recent* posts, so a nightly run catches new articles with
 no duplication. Minute-level "real-time" buys nothing for blogs that publish a
 few times a day.
+
+The refresh reads **both** `config/sources.yaml` (curated) and
+`config/user_sources.yaml` (feeds you add in the app or via
+`ingest.add_user_source(...)`), so anything you save with **“Keep updated daily”**
+is picked up automatically. Saved feeds default to priority 2, so the
+`--min-priority 2` job below includes them.
 
 **macOS (launchd — native, recommended).** A LaunchAgent runs the priority-1&2
 refresh daily at 04:30:
@@ -235,8 +246,10 @@ ChiefEpicure/
   content_filter.py         # sponsored/PR detection (used by ingest + prune)
   curate_authority.py       # load curated_authority.csv into the same collection
   enrich_geo.py             # add lat/lng to chunks (GPS extraction + optional geocode)
+  enrich_media.py           # backfill og:image thumbnails onto existing chunks
   query.py                  # retrieve (+filters, +--near) -> answer via Claude -> cite
-  app.py                    # Streamlit web UI (search + geo + add-your-own-URL)
+  app.py                    # Streamlit web UI (light/dark, thumbnails, geo, add-source)
+  config/user_sources.yaml  # feeds you add in the app (git-ignored; refreshed daily)
   requirements.txt
   .env.example
   chroma_db/                # created on first ingest (git-ignored)
