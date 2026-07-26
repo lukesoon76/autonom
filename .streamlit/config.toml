@@ -1,8 +1,8 @@
-# Light, appetite-forward theme matched to ChiefEater.com's look & feel:
-# warm orange primary, fresh-green secondary, near-black text on light grey.
+# Palantir-style monochrome base: black on white, Arial, hairline greys.
+# (Dark mode is applied at runtime via the in-app Appearance toggle.)
 [theme]
-primaryColor = "#fa8b0c"
+primaryColor = "#111111"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f2f3f5"
-textColor = "#252525"
+secondaryBackgroundColor = "#fafafa"
+textColor = "#111111"
 font = "sans serif"

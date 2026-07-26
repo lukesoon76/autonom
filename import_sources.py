@@ -18,11 +18,16 @@ A line in --urls may override region/priority inline, e.g.:
     https://pepper.ph | PH | 2
 """
 import argparse
+import re
+import socket
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 import ingest
+
+socket.setdefaulttimeout(12)   # keep feedparser/urllib from hanging on dead hosts
 
 
 def _domain_name(url: str) -> str:
@@ -49,15 +54,42 @@ def from_urls_file(path: str) -> list[dict]:
             if not line:
                 continue
             parts = [p.strip() for p in line.split("|")]
-            out.append({"url": parts[0], "name": "",
+            out.append({"url": parts[0],
                         "region": parts[1] if len(parts) > 1 else None,
-                        "priority": int(parts[2]) if len(parts) > 2 else None})
+                        "priority": int(parts[2]) if len(parts) > 2 and parts[2] else None,
+                        "name": parts[3] if len(parts) > 3 else ""})
     return out
+
+
+def _youtube_feed(url: str) -> str | None:
+    """Resolve a YouTube channel/handle URL to its official videos.xml feed."""
+    if "feeds/videos.xml" in url:
+        return url if ingest.parse_feed(url).entries else None
+    m = re.search(r"/channel/(UC[0-9A-Za-z_-]{20,})", url)
+    if not m:
+        html = ingest.fetch(url)          # robots-gated GET
+        if not html:
+            return None
+        m = re.search(r'"(?:channelId|externalId)":"(UC[0-9A-Za-z_-]{20,})"', html) \
+            or re.search(r"/channel/(UC[0-9A-Za-z_-]{20,})", html)
+    if not m:
+        return None
+    feed = f"https://www.youtube.com/feeds/videos.xml?channel_id={m.group(1)}"
+    return feed if ingest.parse_feed(feed).entries else None
+
+
+def _safe_resolve(item: dict):
+    try:
+        return resolve_feed(item)
+    except Exception:
+        return None
 
 
 def resolve_feed(item: dict) -> str | None:
     """Return a working feed URL for the item, or None."""
     url = item["url"]
+    if "youtube.com" in url or "youtu.be" in url:
+        return _youtube_feed(url)
     if item.get("is_feed") or url.rstrip("/").endswith(("feed", "rss", "atom.xml")) \
             or "?feed=" in url or url.endswith(".xml"):
         return url if ingest.parse_feed(url).entries else ingest.discover_feed(url)
@@ -70,10 +102,12 @@ def resolve_feed(item: dict) -> str | None:
 def run(items, region, priority, dry_run):
     existing = {s.get("url") for s in ingest.load_user_sources()}
     added = skipped = notfound = 0
-    for it in items:
+    # resolve feeds concurrently (bounded by socket timeout) — much faster
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        resolved = list(ex.map(lambda it: (it, _safe_resolve(it)), items))
+    for it, feed in resolved:
         reg = it.get("region") or region or ""
         pri = it.get("priority") or priority
-        feed = resolve_feed(it)
         name = it.get("name") or _domain_name(it["url"])
         if not feed:
             print(f"[NOT FOUND] {it['url']}")

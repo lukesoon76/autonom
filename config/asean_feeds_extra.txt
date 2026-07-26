@@ -1,0 +1,16 @@
+# ===== Google News — per-city food feeds (breadth; priority 3) =====
+https://news.google.com/rss/search?q=best+restaurants+Kuala+Lumpur&hl=en-MY&gl=MY&ceid=MY:en | MY | 3 | Google News — KL food
+https://news.google.com/rss/search?q=best+restaurants+Penang&hl=en-MY&gl=MY&ceid=MY:en | MY | 3 | Google News — Penang food
+https://news.google.com/rss/search?q=best+restaurants+Singapore&hl=en-SG&gl=SG&ceid=SG:en | SG | 3 | Google News — Singapore food
+https://news.google.com/rss/search?q=best+restaurants+Bangkok&hl=en-TH&gl=TH&ceid=TH:en | TH | 3 | Google News — Bangkok food
+https://news.google.com/rss/search?q=best+restaurants+Jakarta&hl=en-ID&gl=ID&ceid=ID:en | ID | 3 | Google News — Jakarta food
+https://news.google.com/rss/search?q=best+restaurants+Bali&hl=en-ID&gl=ID&ceid=ID:en | ID | 3 | Google News — Bali food
+https://news.google.com/rss/search?q=best+restaurants+Manila&hl=en-PH&gl=PH&ceid=PH:en | PH | 3 | Google News — Manila food
+https://news.google.com/rss/search?q=best+restaurants+Ho+Chi+Minh+City&hl=en-VN&gl=VN&ceid=VN:en | VN | 3 | Google News — HCMC food
+https://news.google.com/rss/search?q=best+restaurants+Hanoi&hl=en-VN&gl=VN&ceid=VN:en | VN | 3 | Google News — Hanoi food
+https://news.google.com/rss/search?q=best+restaurants+Phnom+Penh&hl=en&gl=US&ceid=US:en | KH | 3 | Google News — Phnom Penh food
+# ===== YouTube food creators (official channel RSS) =====
+https://www.youtube.com/@markwiens | TH | 2 | Mark Wiens
+https://www.youtube.com/@thefoodranger | ASEAN | 3 | The Food Ranger
+https://www.youtube.com/@BestEverFoodReviewShow | VN | 3 | Best Ever Food Review Show
+https://www.youtube.com/@strictlydumpling | ASEAN | 3 | Strictly Dumpling

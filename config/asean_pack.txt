@@ -1,0 +1,31 @@
+# ============ MALAYSIA ============
+https://vkeong.com | MY | 2
+https://www.rebeccasaw.com | MY | 2
+https://www.eatdrinkkl.com | MY | 2
+https://www.klnow.com.my | MY | 3
+https://www.motormouthfromipoh.com | MY | 3
+https://thesmartlocal.my | MY | 3
+# ============ SINGAPORE ============
+https://www.misstamchiak.com | SG | 2
+https://sgfoodonfoot.com | SG | 2
+https://www.camemberu.com | SG | 3
+https://www.dairyandcream.com | SG | 3
+https://thesmartlocal.com | SG | 3
+# ============ THAILAND ============
+https://migrationology.com | TH | 2
+https://www.eatingthaifood.com | TH | 2
+https://www.hungryinthailand.com | TH | 2
+https://bangkokfoodies.com | TH | 3
+# ============ INDONESIA ============
+https://anakjajan.com | ID | 2
+https://www.myfunfoodiary.com | ID | 2
+https://eatandtreats.blogspot.com | ID | 3
+# ============ PHILIPPINES ============
+https://www.ourawesomeplanet.com | PH | 2
+https://www.thepickiesteater.net | PH | 2
+https://www.pepper.ph | PH | 3
+# ============ VIETNAM ============
+https://vietnamcoracle.com | VN | 2
+https://saigoneer.com | VN | 3
+# ============ REGIONAL ============
+https://www.willflyforfood.net | ASEAN | 3

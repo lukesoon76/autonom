@@ -33,7 +33,7 @@ import query
 import util
 from util import ago, parse_pub
 
-st.set_page_config(page_title="ChiefEpicure", page_icon="🍜", layout="wide")
+st.set_page_config(page_title="ChiefEpicure", page_icon="◼", layout="wide")
 
 REGION_LABEL = {"MY": "🇲🇾 Malaysia", "SG": "🇸🇬 Singapore", "TH": "🇹🇭 Thailand",
                 "ID": "🇮🇩 Indonesia", "PH": "🇵🇭 Philippines", "VN": "🇻🇳 Vietnam",
@@ -81,88 +81,101 @@ def load_articles(count: int):
     return util.load_articles(_collection())
 
 
-# ── theme — ChiefEater palette (orange + green), in light and dark ────────────
-# Accents (orange/green) stay constant; only surfaces/text flip between modes.
+# ── theme — Palantir-style monochrome (black / white / grey, Arial) ──────────
+# Deliberately colourless: accents resolve to ink so the whole UI reads as
+# clean black-and-white with hairline rules. Same keys as before so the CSS is
+# untouched structurally; only values changed. ('orange'/'green' = ink now.)
+_INK_L, _INK_D = "#111111", "#f2f2f2"
 THEME = {
-    "Light": dict(bg="#ffffff", sidebar="#f2f3f5", card="#ffffff", panel="#ffffff",
-                  ink="#252525", muted="#5b6470", border="#ededed", thumb="#f2f3f5",
-                  orange="#fa8b0c", orange_d="#d9760a", green="#28a800",
-                  warn_bg="#fff4e6", warn_bd="#ffe0b8",
-                  reg_bg="#e8f7e3", reg_fg="#1f7a00", geo_bg="#fff1de",
-                  ans_bg="#f7fbf5", chip="#f2f3f5"),
-    "Dark": dict(bg="#14171c", sidebar="#1b1f27", card="#1b1f27", panel="#20252e",
-                 ink="#eef1f5", muted="#9aa4b2", border="#2b3240", thumb="#2b3240",
-                 orange="#ff9e2c", orange_d="#ffb455", green="#5ec53b",
-                 warn_bg="#2a2113", warn_bd="#5a4420",
-                 reg_bg="#12331a", reg_fg="#7ddc5b", geo_bg="#33260f",
-                 ans_bg="#16241a", chip="#20252e"),
+    "Light": dict(bg="#ffffff", sidebar="#fafafa", card="#ffffff", panel="#ffffff",
+                  ink=_INK_L, muted="#6b6b6b", border="#e2e2e2", thumb="#f0f0f0",
+                  orange=_INK_L, orange_d="#111111", green=_INK_L,
+                  warn_bg="#f6f6f6", warn_bd="#e2e2e2",
+                  reg_bg="#f0f0f0", reg_fg="#3a3a3a", geo_bg="#f0f0f0",
+                  ans_bg="#fafafa", chip="#f0f0f0"),
+    "Dark": dict(bg="#0b0b0c", sidebar="#121214", card="#121214", panel="#17171a",
+                 ink=_INK_D, muted="#9a9a9a", border="#2a2a2c", thumb="#1e1e20",
+                 orange=_INK_D, orange_d="#f2f2f2", green=_INK_D,
+                 warn_bg="#161618", warn_bd="#2a2a2c",
+                 reg_bg="#1e1e20", reg_fg="#cfcfcf", geo_bg="#1e1e20",
+                 ans_bg="#141416", chip="#1e1e20"),
 }
 
 
 def build_css(p: dict) -> str:
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Oxygen:wght@400;700&display=swap');
-
-html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button {{
-    font-family: 'Oxygen', -apple-system, sans-serif;
+/* Palantir-style: Arial, monochrome, hairline rules, sharp corners */
+html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea,
+button, h1, h2, h3, h4, .brand, .sechead {{
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif !important;
 }}
-h1, h2, h3, .brand {{ font-family: 'Abril Fatface', Georgia, serif !important; }}
 
 /* surfaces (drive the light/dark flip) */
 .stApp, [data-testid="stHeader"] {{ background: {p['bg']}; }}
-[data-testid="stSidebar"] {{ background: {p['sidebar']}; }}
+[data-testid="stSidebar"] {{ background: {p['sidebar']};
+    border-right: 1px solid {p['border']}; }}
 .stApp, .stMarkdown, p, span, label, li, .stRadio, .stSlider, h1, h2, h3, h4 {{ color: {p['ink']}; }}
 [data-testid="stSidebar"] * {{ color: {p['ink']}; }}
 .stTextInput input, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
 [data-baseweb="select"] > div {{ background: {p['panel']} !important; color: {p['ink']} !important;
-    border-color: {p['border']} !important; }}
-[data-testid="stExpander"] {{ border-color: {p['border']}; }}
-/* example chips (secondary buttons) adapt to theme; primary stays orange */
+    border-color: {p['border']} !important; border-radius: 2px !important; }}
+[data-testid="stExpander"] {{ border-color: {p['border']}; border-radius: 2px; }}
+
+/* buttons: primary = solid ink, secondary = hairline outline; all square */
+.stButton button, .stDownloadButton button {{ border-radius: 2px !important; }}
+.stButton button[kind="primary"] {{ background:{p['ink']} !important; color:{p['bg']} !important;
+    border:1px solid {p['ink']} !important; font-weight:700; }}
 .stButton button[kind="secondary"] {{ background:{p['panel']}; color:{p['ink']};
     border:1px solid {p['border']}; }}
-.stButton button[kind="secondary"]:hover {{ border-color:{p['orange']};
-    color:{p['orange']}; }}
+.stButton button[kind="secondary"]:hover {{ border-color:{p['ink']}; color:{p['ink']}; }}
 
-/* brand wordmark */
-.brand {{ font-size: 2.9rem; line-height: 1.05; color: {p['ink']}; margin: 0; }}
-.brand .chief {{ color: {p['orange']}; }}
-.brand .dot {{ color: {p['green']}; }}
-.tagline {{ font-family: 'Libre Caslon Text', Georgia, serif; font-style: italic;
-           color: {p['muted']}; font-size: 1.02rem; margin: 2px 0; }}
-.warn {{ font-family:'Oxygen',sans-serif; font-size:.8rem; color:{p['orange_d']};
-         background:{p['warn_bg']}; border:1px solid {p['warn_bd']}; border-radius:8px;
-         padding:3px 10px; display:inline-block; margin-top:6px; }}
+/* brand wordmark — plain, tight, monochrome */
+.brand {{ font-size: 2.3rem; font-weight: 800; letter-spacing: -0.03em;
+         line-height: 1.05; color: {p['ink']}; margin: 0; }}
+.brand .chief {{ color: {p['ink']}; }}
+.brand .dot {{ color: {p['ink']}; }}
+.tagline {{ text-transform: uppercase; letter-spacing: 0.18em; color: {p['muted']};
+           font-size: 0.68rem; margin: 6px 0 2px; }}
+.warn {{ font-size:.66rem; text-transform:uppercase; letter-spacing:.14em;
+         color:{p['muted']}; border-top:1px solid {p['border']};
+         border-bottom:1px solid {p['border']}; padding:5px 0; display:block;
+         margin-top:8px; }}
 
-/* result cards (flex: thumbnail + body) */
+/* result cards */
 .card{{display:flex; gap:14px; align-items:flex-start;
-      border:1px solid {p['border']}; border-left:4px solid {p['orange']};
-      border-radius:10px; padding:14px 16px; margin-bottom:12px;
-      background:{p['card']}; box-shadow:0 1px 3px rgba(0,0,0,.06);}}
+      border:1px solid {p['border']}; border-left:2px solid {p['ink']};
+      border-radius:2px; padding:14px 16px; margin-bottom:10px;
+      background:{p['card']};}}
 .thumb-wrap{{position:relative; width:104px; height:104px; flex:0 0 104px;
-            border-radius:8px; overflow:hidden; background:{p['thumb']};}}
+            border-radius:2px; overflow:hidden; background:{p['thumb']};
+            border:1px solid {p['border']};}}
 .thumb, .thumb-ph{{position:absolute; inset:0; width:100%; height:100%;}}
 .thumb{{object-fit:cover;}}
 .thumb-ph{{display:flex; align-items:center; justify-content:center;
-          font-size:2.1rem; color:{p['muted']};}}
+          font-size:1.6rem; color:{p['muted']}; filter:grayscale(1);}}
 .card .body{{flex:1; min-width:0;}}
-.card h4{{margin:0 0 6px 0; font-family:'Oxygen',sans-serif; font-weight:700;
-         font-size:1.03rem; color:{p['ink']};}}
-.badge{{display:inline-block; font-size:.72rem; padding:2px 9px; border-radius:999px;
-       background:{p['chip']}; color:{p['muted']}; margin:0 6px 4px 0;}}
+.card h4{{margin:0 0 6px 0; font-weight:700; font-size:1.0rem; color:{p['ink']};}}
+.badge{{display:inline-block; font-size:.66rem; text-transform:uppercase;
+       letter-spacing:.05em; padding:2px 7px; border-radius:2px;
+       background:{p['chip']}; color:{p['muted']}; margin:0 6px 4px 0;
+       border:1px solid {p['border']};}}
 .badge-reg{{background:{p['reg_bg']}; color:{p['reg_fg']};}}
-.badge-geo{{background:{p['geo_bg']}; color:{p['orange_d']};}}
-.snippet{{color:{p['muted']}; font-size:.9rem; line-height:1.5; margin:6px 0;}}
-.src a{{font-size:.82rem; color:{p['orange_d']}; text-decoration:none; font-weight:700;}}
-.answer{{border-left:4px solid {p['green']}; background:{p['ans_bg']}; border-radius:8px;
+.badge-geo{{background:{p['geo_bg']}; color:{p['ink']};}}
+.snippet{{color:{p['muted']}; font-size:.86rem; line-height:1.5; margin:6px 0;}}
+.src a{{font-size:.78rem; color:{p['ink']}; text-decoration:none; font-weight:700;
+       border-bottom:1px solid {p['border']};}}
+.answer{{border-left:2px solid {p['ink']}; background:{p['ans_bg']}; border-radius:2px;
         padding:10px 16px; color:{p['ink']};}}
 /* interactive cards use bordered containers */
 [data-testid="stVerticalBlockBorderWrapper"]{{border-color:{p['border']} !important;
-    border-radius:10px; background:{p['card']};}}
-.sechead{{font-family:'Abril Fatface',serif; font-size:1.5rem; color:{p['ink']};
-         margin:.4rem 0 .2rem;}}
-.kpi{{color:{p['muted']}; font-size:.9rem; margin-bottom:.4rem;}}
-.stars{{color:{p['orange']}; letter-spacing:1px;}}
+    border-radius:2px; background:{p['card']};}}
+.sechead{{font-weight:800; letter-spacing:-0.01em; font-size:1.15rem; color:{p['ink']};
+         text-transform:uppercase; border-bottom:1px solid {p['border']};
+         padding-bottom:4px; margin:1rem 0 .5rem;}}
+.kpi{{color:{p['muted']}; font-size:.8rem; text-transform:uppercase;
+     letter-spacing:.08em; margin-bottom:.5rem;}}
+.stars{{color:{p['ink']}; letter-spacing:1px;}}
 </style>
 """
 
@@ -176,11 +189,9 @@ st.markdown(build_css(PAL), unsafe_allow_html=True)
 
 # ── header ───────────────────────────────────────────────────────────────────
 st.markdown(
-    f"<div class='brand'>🍜 <span class='chief'>Chief</span>"
-    f"<span style='color:{PAL['ink']}'>Epicure</span><span class='dot'>.</span></div>"
-    "<div class='tagline'>Real food, real reviews — where to eat in "
-    "Malaysia &amp; Singapore, always with sources.</div>"
-    "<div class='warn'>⚠️ Warning: guaranteed to make you hungry.</div>",
+    "<div class='brand'>ChiefEpicure</div>"
+    "<div class='tagline'>ASEAN Food Intelligence · Grounded in Sources</div>"
+    "<div class='warn'>Bloggers · Creators · Michelin &amp; Authority · Updated daily</div>",
     unsafe_allow_html=True,
 )
 st.write("")
