@@ -81,16 +81,23 @@ def haversine_km(lat1, lng1, lat2, lng2):
 
 
 def retrieve(question, k=6, region=None, city=None, embedder=None, coll=None,
-             near=None, radius_km=None):
+             near=None, radius_km=None, contains=None):
     """Semantic search; returns hit dicts {doc, meta, distance[, distance_km]}.
 
-    When `near=(lat,lng)` is given, we over-fetch candidates, drop any without
-    coordinates or outside `radius_km`, sort by proximity, and return the top k.
-    Run enrich_geo.py first so chunks carry lat/lng.
+    Filters:
+      • region  — country code (metadata pre-filter).
+      • contains — list of terms (area/state/city/district, cuisine…) that must
+        ALL appear (case-insensitive) in a hit's title+text. Great for the
+        ChiefEater directory pages, which carry addresses + cuisine tags.
+      • near=(lat,lng) [+ radius_km] — keep only geo-tagged hits within radius,
+        sorted by proximity (run enrich_geo.py first).
+    We over-fetch when any post-filter is active, then trim to k.
     """
     embedder = embedder or get_embedder()
     coll = coll or get_collection()
-    n = max(k * 8, 40) if near else k
+    terms = [t.strip().lower() for t in (contains or []) if t and t.strip()]
+    post = bool(terms) or bool(near)
+    n = max(k * 12, 80) if post else k
     res = coll.query(
         query_embeddings=embedder.encode([question]).tolist(),
         n_results=n,
@@ -101,6 +108,13 @@ def retrieve(question, k=6, region=None, city=None, embedder=None, coll=None,
     dists = res.get("distances", [[]])[0] or [None] * len(docs)
     hits = [{"doc": d, "meta": m, "distance": dist}
             for d, m, dist in zip(docs, metas, dists)]
+
+    if terms:
+        def _hay(h):
+            m = h["meta"]
+            return (f"{m.get('title','')} {m.get('city','')} {m.get('source','')} "
+                    f"{h['doc']}").lower()
+        hits = [h for h in hits if all(t in _hay(h) for t in terms)]
 
     if near:
         lat0, lng0 = near
@@ -116,7 +130,7 @@ def retrieve(question, k=6, region=None, city=None, embedder=None, coll=None,
         geo_hits.sort(key=lambda h: h["distance_km"])
         return geo_hits[:k]
 
-    return hits
+    return hits[:k]
 
 
 def build_context(hits: list[dict]):
@@ -168,6 +182,10 @@ def main():
                     help='"lat,lng" to rank by proximity (run enrich_geo.py first)')
     ap.add_argument("--radius-km", type=float, default=None, dest="radius_km",
                     help="only include places within this many km of --near")
+    ap.add_argument("--area", default=None,
+                    help="state / city / district must appear in the review text")
+    ap.add_argument("--cuisine", default=None,
+                    help="cuisine/dish must appear in the review text (e.g. laksa)")
     args = ap.parse_args()
 
     near = None
@@ -179,7 +197,8 @@ def main():
             ap.error('--near must look like "3.1390,101.6869"')
 
     hits = retrieve(args.question, args.k, args.region, args.city,
-                    near=near, radius_km=args.radius_km)
+                    near=near, radius_km=args.radius_km,
+                    contains=[args.area, args.cuisine])
     if not hits:
         print("No matches yet — run ingest.py first, or widen your filters.")
         return

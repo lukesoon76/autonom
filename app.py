@@ -204,54 +204,41 @@ NOW = dt.datetime.now(dt.timezone.utc)
 
 with st.sidebar:
     st.divider()
-    st.subheader("Corpus")
-    if stats["total"] == 0:
-        st.warning("The vector store is empty. Ingest first:\n\n"
-                   "`python ingest.py --region SG --limit 5`", icon="📭")
-    else:
-        st.metric("Chunks indexed", f"{stats['total']:,}")
-        reg = "  ·  ".join(f"{REGION_LABEL.get(r, r)} {n}"
-                           for r, n in stats["regions"].most_common())
-        st.caption(reg)
-        with st.expander(f"{len(stats['sources'])} sources"):
-            for name, n in stats["sources"].most_common():
-                st.write(f"• {name} — {n}")
-
-    st.divider()
-    st.subheader("🏙️ Your city")
+    st.subheader("🏙️ Location")
     # region options are whatever's actually in the corpus (grows with ASEAN)
     _present = [r for r, _ in stats["regions"].most_common() if r]
     _reg_opts = ["All"] + sorted(_present) if _present else ["All", "MY", "SG"]
-    region = st.selectbox("Region", _reg_opts,
+    region = st.selectbox("Country / region", _reg_opts,
                           index=_reg_opts.index(PREFS["region"])
                           if PREFS.get("region") in _reg_opts else 0,
                           format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "🌏 All")
-    city = st.text_input("City", value=PREFS.get("city", ""),
-                         placeholder="e.g. Kuala Lumpur / Singapore")
-    if st.button("📌 Save as my home city", use_container_width=True):
-        personal.set_prefs(region=region, city=city.strip())
-        st.toast(f"Home set to {city.strip() or region}", icon="🏙️")
+    area = st.text_input("State / city / district", value=PREFS.get("city", ""),
+                         placeholder="e.g. Penang · Bangsar · Ipoh · Thonglor")
+    if st.button("📌 Save as my home", use_container_width=True):
+        personal.set_prefs(region=region, city=area.strip())
+        st.toast(f"Home set to {area.strip() or region}", icon="🏙️")
         st.rerun()
 
     st.divider()
-    st.subheader("Search options")
-    k = st.slider("Results (k)", 3, 12, 6)
-    with st.expander("📍 Near a point (geo)"):
-        st.caption("Rank by distance to a lat,lng. Run `enrich_geo.py` first so "
-                   "places carry coordinates.")
-        near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
-                                 placeholder="3.1390, 101.6869")
-        radius_km = st.slider("Radius (km)", 1, 50, 10)
-        if st.button("📌 Save as my location", use_container_width=True):
-            personal.set_prefs(latlng=near_str.strip())
-            st.toast("Home location saved", icon="📍")
+    st.subheader("🍜 Cuisine / dish")
+    cuisine = st.text_input("Cuisine or dish", label_visibility="collapsed",
+                            placeholder="e.g. laksa · dim sum · omakase · nasi lemak")
 
     st.divider()
+    st.subheader("📍 Near me")
+    near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
+                             placeholder="3.1390, 101.6869")
+    radius_km = st.slider("Radius (km)", 1, 50, 10)
+    if st.button("📌 Save my location", use_container_width=True):
+        personal.set_prefs(latlng=near_str.strip())
+        st.toast("Location saved", icon="📍")
+
+    st.divider()
+    k = st.slider("Results", 3, 12, 6)
     if query.has_api_key():
-        st.success("Claude answers: **on** (API key found)", icon="✅")
+        st.caption("✅ Claude answers on")
     else:
-        st.info("No API key — showing ranked snippets.\nSet `ANTHROPIC_API_KEY` "
-                "in `.env` for written answers.", icon="💡")
+        st.caption("💡 No API key — ranked snippets")
 
 home_tab, find_tab, mylist_tab, add_tab = st.tabs(
     ["🏠  Today", "🔎  Find food", "❤️  My list", "➕  Add a source"])
@@ -312,14 +299,17 @@ def render_card(a, key):
 # ── tab: Today (aggregate what's new & good) ─────────────────────────────────
 with home_tab:
     reg = None if region == "All" else region
-    cty = city.strip() or None
+    terms = [t.strip().lower() for t in (area, cuisine) if t and t.strip()]
     arts = load_articles(stats["total"])
     if reg:
         arts = [a for a in arts if a["region"] == reg]
-    if cty:
-        arts = [a for a in arts if cty.lower() in (a["city"] or "").lower()]
+    if terms:
+        def _hay(a):
+            return (f"{a['title']} {a.get('city', '')} {a.get('source', '')} "
+                    f"{a['text']}").lower()
+        arts = [a for a in arts if all(t in _hay(a) for t in terms)]
 
-    where = city.strip() or (REGION_LABEL.get(reg, "Malaysia & Singapore") if reg
+    where = area.strip() or (REGION_LABEL.get(reg, "Malaysia & Singapore") if reg
                              else "Malaysia & Singapore")
     fresh_wk = sum(1 for a in arts if a["ts"] and (NOW - a["ts"]).days < 7)
     st.markdown(f"<div class='sechead'>What's new &amp; good in "
@@ -344,7 +334,8 @@ with home_tab:
 
     if show_digest:
         with st.spinner("Building today's digest…"):
-            md, _html, _a, _f = digest.build(region=reg, city=cty, days=7, limit=10)
+            md, _html, _a, _f = digest.build(region=reg, city=area.strip() or None,
+                                             days=7, limit=10)
         with st.container(border=True):
             st.markdown(md)
         st.download_button("⬇️ Download digest (.md)", md,
@@ -400,16 +391,15 @@ with find_tab:
 
     if go and q.strip():
         reg = None if region == "All" else region
-        cty = city.strip() or None
         near = None
         if near_str.strip():
             try:
-                a, b = near_str.split(",")
-                near = (float(a), float(b))
+                _la, _ln = near_str.split(",")
+                near = (float(_la), float(_ln))
             except ValueError:
-                st.warning('“Near” must look like `3.1390, 101.6869` — ignoring it.')
-        with st.spinner("Searching the corpus…"):
-            hits = query.retrieve(q, k=k, region=reg, city=cty,
+                st.warning('“Near me” must look like `3.1390, 101.6869` — ignoring it.')
+        with st.spinner("Searching…"):
+            hits = query.retrieve(q, k=k, region=reg, contains=[area, cuisine],
                                   embedder=_embedder(), coll=coll,
                                   near=near, radius_km=radius_km if near else None)
         if near and not hits:
