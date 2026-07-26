@@ -25,6 +25,8 @@ try:
 except ImportError:
     pass
 
+import auth
+import community
 import curate_authority as authority
 import digest
 import ingest
@@ -180,11 +182,54 @@ button, h1, h2, h3, h4, .brand, .sechead {{
 """
 
 
+def render_account():
+    """Sidebar account box — sign in / register, or show the signed-in member."""
+    user = st.session_state.get("user")
+    if user:
+        st.markdown(f"**👤 {auth.display_name(user)}**")
+        if st.button("Sign out", use_container_width=True):
+            st.session_state.user = None
+            st.rerun()
+        return
+    with st.expander("👤 Sign in / Register", expanded=False):
+        tab_in, tab_up = st.tabs(["Sign in", "Register"])
+        with tab_in:
+            u = st.text_input("Username", key="li_u")
+            p = st.text_input("Password", type="password", key="li_p")
+            if st.button("Sign in", key="li_go", use_container_width=True, type="primary"):
+                if auth.verify(u, p):
+                    st.session_state.user = auth.normalize_username(u)
+                    st.rerun()
+                else:
+                    st.error("Wrong username or password.")
+        with tab_up:
+            du = st.text_input("Display name", key="su_d")
+            u2 = st.text_input("Username", key="su_u")
+            p2 = st.text_input("Password (8+ chars)", type="password", key="su_p")
+            if st.button("Create account", key="su_go", use_container_width=True,
+                         type="primary"):
+                ok, msg = auth.create_user(u2, p2, display=du)
+                if ok:
+                    st.session_state.user = auth.normalize_username(u2)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.caption("Local prototype accounts (hashed). Not for public deployment.")
+
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
 with st.sidebar:
+    render_account()
+    st.divider()
     mode = st.radio("Appearance", ["Light", "Dark"], horizontal=True, key="theme",
                     format_func=lambda m: "☀️ Light" if m == "Light" else "🌙 Dark")
 PAL = THEME[mode]
 st.markdown(build_css(PAL), unsafe_allow_html=True)
+personal.use(st.session_state.user)      # scope saved places / reviews to the member
+USER = st.session_state.user
+DISPLAY = auth.display_name(USER) if USER else "guest"
 
 
 # ── header ───────────────────────────────────────────────────────────────────
@@ -240,8 +285,8 @@ with st.sidebar:
     else:
         st.caption("💡 No API key — ranked snippets")
 
-home_tab, find_tab, mylist_tab, add_tab = st.tabs(
-    ["🏠  Today", "🔎  Find food", "❤️  My list", "➕  Add a source"])
+home_tab, find_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
+    ["🏠  Today", "🔎  Find food", "❤️  My list", "✍️  Contribute", "➕  Add a source"])
 
 
 # ── shared card renderer (thumbnail + body + Save) ───────────────────────────
@@ -348,11 +393,28 @@ with home_tab:
         st.info("Nothing here yet for this city. Widen the filter, or add a feed "
                 "under **Add a source**.")
     else:
-        auth = [a for a in arts if a["source"] == "Authority"][:6]
-        if auth:
+        # ⭐ Featured ChiefEpicures — top contributors + their recent posts
+        feat = community.featured_contributors(arts, top=6)
+        if feat:
+            st.markdown("<div class='sechead'>⭐ Featured ChiefEpicures</div>",
+                        unsafe_allow_html=True)
+            fcols = st.columns(2)
+            for i, c in enumerate(feat):
+                with fcols[i % 2].container(border=True):
+                    tag = "👤 member" if c["member"] else "creator"
+                    st.markdown(f"**{c['name']}** · {c['count']} entries · {tag}")
+                    for p in c["posts"]:
+                        st.markdown(f"<div style='font-size:.82rem'>↳ "
+                                    f"<a href='{p['url']}' target='_blank' "
+                                    f"style='color:{PAL['ink']}'>{p['title'][:70]}</a> "
+                                    f"<span style='color:{PAL['muted']}'>· {ago(p['ts'])}"
+                                    f"</span></div>", unsafe_allow_html=True)
+
+        auth_picks = [a for a in arts if a["source"] == "Authority"][:6]
+        if auth_picks:
             st.markdown("<div class='sechead'>⭐ Michelin &amp; authority picks</div>",
                         unsafe_allow_html=True)
-            for j, a in enumerate(auth):
+            for j, a in enumerate(auth_picks):
                 render_card(a, f"auth_{j}")
 
         st.markdown("<div class='sechead'>🍜 Fresh finds</div>", unsafe_allow_html=True)
@@ -542,6 +604,73 @@ with mylist_tab:
                 st.caption("No new suggestions yet — add more sources to widen the pool.")
             for i, h in enumerate(fresh):
                 render_card(card_from_hit(h), f"rec_{i}")
+
+
+# ── tab: Contribute (write a dining review with photos) ──────────────────────
+with contribute_tab:
+    st.markdown("<div class='sechead'>✍️ Share a dining experience</div>",
+                unsafe_allow_html=True)
+    if not USER:
+        st.info("Sign in (sidebar → 👤) to post your reviews as a **ChiefEpicure** "
+                "— they'll appear in Today, Find and Featured.", icon="🔐")
+    else:
+        st.caption(f"Posting as **{DISPLAY}**")
+        with st.form("write_review", clear_on_submit=True):
+            rname = st.text_input("Place", placeholder="e.g. Line Clear Nasi Kandar")
+            r1, r2, r3 = st.columns(3)
+            rregion = r1.selectbox("Region", ["MY", "SG", "TH", "ID", "PH", "VN",
+                                              "KH", "LA", "MM", "BN"], index=0)
+            rcity = r2.text_input("City / area", placeholder="Penang / Bangsar")
+            rrating = r3.slider("Rating", 1, 5, 4)
+            rcuisine = st.text_input("Cuisine / dish", placeholder="Nasi kandar, mamak")
+            rtext = st.text_area("Your experience",
+                                 placeholder="What you ate, how it was, what to order…")
+            rphotos = st.file_uploader("Photos of the food & drinks",
+                                       type=["jpg", "jpeg", "png", "webp"],
+                                       accept_multiple_files=True)
+            rurl = st.text_input("Link (optional)", placeholder="menu / map / IG post")
+            posted = st.form_submit_button("📣 Post review", type="primary")
+        if posted:
+            if not rname.strip() or not rtext.strip():
+                st.warning("A place name and a few words are required.")
+            else:
+                imgs = community.save_images(USER, rphotos)
+                review = {"name": rname.strip(), "region": rregion,
+                          "city": rcity.strip(), "cuisine": rcuisine.strip(),
+                          "stars": f"{rrating}/5", "rating": rrating,
+                          "text": rtext.strip(), "url": rurl.strip(),
+                          "images": imgs, "ts": NOW.isoformat()}
+                review = personal.add_review(review)
+                community.embed_review(review, USER, DISPLAY, coll, _embedder())
+                st.success("📣 Posted! Your review is now live in Today, Find and "
+                           "Featured. Thanks for contributing.")
+
+        # your own reviews
+        my = personal.load_reviews()
+        st.markdown(f"<div class='sechead'>Your reviews ({len(my)})</div>",
+                    unsafe_allow_html=True)
+        for rv in my:
+            with st.container(border=True):
+                cimg, cbody = st.columns([1, 4], vertical_alignment="center")
+                shots = [p for p in rv.get("images", []) if os.path.exists(p)]
+                if shots:
+                    cimg.image(shots[0], use_container_width=True)
+                else:
+                    cimg.markdown("<div class='thumb-wrap'><div class='thumb-ph'>🍽️"
+                                  "</div></div>", unsafe_allow_html=True)
+                cbody.markdown(
+                    f"**{rv['name']}** · {'★' * int(rv.get('rating', 0))}  \n"
+                    f"<span class='badge badge-reg'>{REGION_LABEL.get(rv.get('region',''), rv.get('region',''))}</span>"
+                    f"<span class='badge'>{rv.get('city','')}</span>"
+                    f"<span class='badge'>{rv.get('cuisine','')}</span>  \n"
+                    f"<span class='snippet'>{rv.get('text','')[:240]}</span>",
+                    unsafe_allow_html=True)
+                if len(shots) > 1:
+                    cbody.image(shots[1:4], width=90)
+                if cbody.button("🗑️ Delete", key=f"delrv_{rv['id']}"):
+                    community.unembed_review(USER, rv["id"], coll)
+                    personal.remove_review(rv["id"])
+                    st.rerun()
 
 
 # ── tab: add a source ────────────────────────────────────────────────────────

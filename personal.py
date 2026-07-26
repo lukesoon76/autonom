@@ -12,25 +12,63 @@ config/user_data.yaml (git-ignored — it's your private data):
 status ∈ {"want" (want to go), "been" (visited)}.
 """
 import os
+import secrets
 
 import yaml
 
-DATA_PATH = "config/user_data.yaml"
+import auth
+
+DATA_PATH = "config/user_data.yaml"       # guest / not-signed-in
+_USER = None                              # set via use() after login
+
+
+def use(username) -> None:
+    """Scope all personal data to a signed-in user (None = local guest)."""
+    global _USER
+    _USER = username or None
+
+
+def _path() -> str:
+    if _USER:
+        return f"config/users_data/{auth.safe_key(_USER)}.yaml"
+    return DATA_PATH
 
 
 def _load() -> dict:
-    if os.path.exists(DATA_PATH):
-        with open(DATA_PATH) as f:
+    path = _path()
+    if os.path.exists(path):
+        with open(path) as f:
             return yaml.safe_load(f) or {}
     return {}
 
 
 def _save(d: dict) -> None:
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w") as f:
-        f.write("# ChiefEpicure personal data — your home city and saved places /\n"
-                "# reviews. Private & local; safe to hand-edit.\n")
+    path = _path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("# ChiefEpicure personal data — home city, saved places, reviews.\n"
+                "# Private & local; safe to hand-edit.\n")
         yaml.safe_dump(d, f, sort_keys=False, allow_unicode=True)
+
+
+# ── user reviews (dining experiences) ────────────────────────────────────────
+def load_reviews() -> list[dict]:
+    return _load().get("reviews", []) or []
+
+
+def add_review(review: dict) -> dict:
+    d = _load()
+    revs = d.setdefault("reviews", [])
+    review.setdefault("id", secrets.token_hex(8))
+    revs.insert(0, review)                 # newest first
+    _save(d)
+    return review
+
+
+def remove_review(rid: str) -> None:
+    d = _load()
+    d["reviews"] = [r for r in d.get("reviews", []) if r.get("id") != rid]
+    _save(d)
 
 
 # ── home-city preferences ────────────────────────────────────────────────────
