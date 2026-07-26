@@ -23,7 +23,10 @@ import hashlib
 import os
 import re
 import sys
+import threading
 import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from xml.etree import ElementTree
@@ -42,7 +45,7 @@ USER_AGENT = "FoodRAG/1.0 (personal research bot; respects robots.txt)"
 REQUEST_DELAY = 1.5            # seconds between fetches to the same host
 CHUNK_CHARS = 900
 CHUNK_OVERLAP = 150
-EMBED_MODEL = "all-MiniLM-L6-v2"   # local, free, 384-dim
+EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"  # 384-dim, ASEAN languages
 DB_PATH = "./chroma_db"
 COLLECTION = "food_reviews"
 SOURCES_PATH = "config/sources.yaml"
@@ -60,6 +63,9 @@ FEED_PROBE_PATHS = (
 
 _robots_cache: dict[str, object] = {}   # host -> Protego | _ROBOTS_DENY_ALL | None
 _last_hit: dict[str, float] = {}
+_host_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_locks_guard = threading.Lock()
+_write_lock = threading.Lock()          # serialize embed+DB writes under concurrency
 
 
 # ── politeness helpers ──────────────────────────────────────────────────────
@@ -116,12 +122,18 @@ def allowed_by_robots(url: str) -> bool:
 
 
 def throttle(url: str) -> None:
-    """Ensure >= REQUEST_DELAY seconds between hits to the same host."""
+    """Ensure >= REQUEST_DELAY seconds between hits to the same host.
+
+    Thread-safe: per-host locks serialize spacing within a host while allowing
+    different hosts to proceed in parallel (used by --concurrency)."""
     host = urlparse(url).netloc
-    wait = REQUEST_DELAY - (time.time() - _last_hit.get(host, 0))
-    if wait > 0:
-        time.sleep(wait)
-    _last_hit[host] = time.time()
+    with _locks_guard:
+        lock = _host_locks[host]
+    with lock:
+        wait = REQUEST_DELAY - (time.time() - _last_hit.get(host, 0))
+        if wait > 0:
+            time.sleep(wait)
+        _last_hit[host] = time.time()
 
 
 def http_get(url: str, timeout: int = 20) -> str | None:
@@ -325,8 +337,11 @@ def ingest_one(url, source, region, city, embedder, coll, *,
         "image": image,
         "ingested": datetime.now(timezone.utc).isoformat(),
     } for _ in pieces]
-    coll.upsert(ids=ids, documents=pieces,
-                embeddings=embedder.encode(pieces).tolist(), metadatas=metas)
+    # serialize the CPU (encode) + DB (upsert) section so --concurrency only
+    # parallelizes network fetches, never concurrent writes to Chroma
+    with _write_lock:
+        coll.upsert(ids=ids, documents=pieces,
+                    embeddings=embedder.encode(pieces).tolist(), metadatas=metas)
     return {"status": "ok", "chunks": len(pieces), "url": url, "title": title}
 
 
@@ -452,8 +467,36 @@ def prune_sponsored(coll) -> int:
     return len(to_delete)
 
 
+def _is_fresh(ingested_iso: str, max_age_days: int | None) -> bool:
+    """True if an existing chunk should count as 'fresh' (so we skip re-fetch).
+    max_age_days=None → any existing entry counts as fresh."""
+    if max_age_days is None:
+        return True
+    if not ingested_iso:
+        return False
+    try:
+        d = datetime.fromisoformat(ingested_iso)
+    except ValueError:
+        return False
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - d).days < max_age_days
+
+
+def _seen_urls(coll, max_age_days) -> set[str]:
+    """URLs already ingested (and fresh enough to skip)."""
+    got = coll.get(include=["metadatas"])
+    seen = set()
+    for m in got["metadatas"]:
+        u = m.get("url")
+        if u and _is_fresh(m.get("ingested", ""), max_age_days):
+            seen.add(u)
+    return seen
+
+
 def run(region, limit, min_priority, discover,
-        keep_sponsored=False, prune=False, source=None):
+        keep_sponsored=False, prune=False, source=None,
+        skip_existing=False, max_age_days=None, concurrency=1):
     if prune:
         prune_sponsored(get_collection())
         return
@@ -477,22 +520,44 @@ def run(region, limit, min_priority, discover,
 
     embedder = get_embedder()
     coll = get_collection()
+    seen = _seen_urls(coll, max_age_days) if skip_existing else set()
+    if skip_existing:
+        print(f"skip-existing: {len(seen)} URLs already present will be skipped")
 
+    # build the work-list (source discovery is sequential; per-article fetch
+    # is what we parallelize)
+    work = []
     for s in sources:
-        print(f"\n=== {s['name']} ({s['region']}/{s.get('city','')}) ===")
         if s["type"] not in ("rss", "sitemap", "page"):
-            print("    manual source — import via curate_authority.py, skipping here")
+            print(f"=== {s['name']} — manual source, import via curate_authority.py")
             continue
+        items = collect_source_items(s, limit)
+        kept = [it for it in items if it.get("url") and it["url"] not in seen]
+        skipped = len(items) - len(kept)
+        print(f"=== {s['name']} ({s['region']}/{s.get('city','')}) — "
+              f"{len(kept)} to fetch" + (f", {skipped} already have" if skipped else ""))
+        work.extend((it, s) for it in kept)
 
-        for it in collect_source_items(s, limit):
-            r = ingest_one(it["url"], s["name"], s["region"], s.get("city", ""),
-                           embedder, coll, title=it.get("title", ""),
-                           date=it.get("date", ""), priority=s.get("priority", 99),
-                           skip_sponsored=not keep_sponsored)
+    def _do(pair):
+        it, s = pair
+        return ingest_one(it["url"], s["name"], s["region"], s.get("city", ""),
+                          embedder, coll, title=it.get("title", ""),
+                          date=it.get("date", ""), priority=s.get("priority", 99),
+                          skip_sponsored=not keep_sponsored)
+
+    if concurrency > 1:
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            results = ex.map(_do, work)
+            for r in results:
+                if r["status"] == "ok":
+                    print(f"    + {r['title'][:60] or r['url'][:60]}  ({r['chunks']} chunks)")
+    else:
+        for pair in work:
+            r = _do(pair)
             if r["status"] == "ok":
                 print(f"    + {r['title'][:60] or r['url'][:60]}  ({r['chunks']} chunks)")
             elif r["status"] == "blocked":
-                print(f"    robots.txt disallows {it['url']} — skipping")
+                print(f"    robots.txt disallows {pair[0]['url']} — skipping")
             elif r["status"] == "sponsored":
                 print(f"    ~ sponsored/PR, skipped: {r['title'][:56]}")
 
@@ -517,10 +582,17 @@ if __name__ == "__main__":
                     help="store sponsored/PR posts too (default: skip them)")
     ap.add_argument("--prune-sponsored", action="store_true", dest="prune_sponsored",
                     help="delete already-stored sponsored/PR chunks, then exit")
+    ap.add_argument("--skip-existing", action="store_true", dest="skip_existing",
+                    help="skip URLs already in the store (cheap refresh / resume)")
+    ap.add_argument("--max-age-days", type=int, default=None, dest="max_age_days",
+                    help="with --skip-existing: re-fetch entries older than N days")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="parallel host fetches (DB writes stay serial; default 1)")
     args = ap.parse_args()
     try:
         run(args.region, args.limit, args.min_priority, args.discover,
             keep_sponsored=args.keep_sponsored, prune=args.prune_sponsored,
-            source=args.source)
+            source=args.source, skip_existing=args.skip_existing,
+            max_age_days=args.max_age_days, concurrency=args.concurrency)
     except KeyboardInterrupt:
         sys.exit(130)
