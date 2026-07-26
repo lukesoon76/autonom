@@ -78,4 +78,43 @@ def upsert_place(url: str, *, ts: str = "", **fields) -> dict:
 def remove_place(url: str) -> None:
     d = _load()
     d["places"] = [p for p in d.get("places", []) if p.get("url") != url]
+    for name in list(d.get("collections", {})):        # drop from any collection
+        d["collections"][name] = [u for u in d["collections"][name] if u != url]
     _save(d)
+
+
+# ── collections (named lists, Chope-style) ───────────────────────────────────
+def load_collections() -> dict:
+    return _load().get("collections", {}) or {}
+
+
+def create_collection(name: str) -> None:
+    name = name.strip()
+    if not name:
+        return
+    d = _load()
+    d.setdefault("collections", {}).setdefault(name, [])
+    _save(d)
+
+
+def delete_collection(name: str) -> None:
+    d = _load()
+    d.get("collections", {}).pop(name, None)
+    _save(d)
+
+
+def set_collections_for(url: str, names: list[str]) -> None:
+    """Make `url` belong to exactly the given collections (creating as needed)."""
+    d = _load()
+    cols = d.setdefault("collections", {})
+    for n in list(cols):
+        cols[n] = [u for u in cols[n] if u != url]
+    for n in names:
+        cols.setdefault(n, [])
+        if url not in cols[n]:
+            cols[n].append(url)
+    _save(d)
+
+
+def collections_for(url: str) -> list[str]:
+    return [n for n, urls in load_collections().items() if url in urls]

@@ -6,3 +6,5 @@ config/user_data.yaml
 __pycache__/
 *.pyc
 ingest.log
+
+digests/

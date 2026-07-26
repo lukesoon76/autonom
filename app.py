@@ -14,8 +14,8 @@ A friendly front-end over the same local pipeline used by the CLI:
 """
 import datetime as dt
 import os
+import random
 from collections import Counter
-from email.utils import parsedate_to_datetime
 
 import streamlit as st
 
@@ -25,9 +25,12 @@ try:
 except ImportError:
     pass
 
+import digest
 import ingest
 import personal
 import query
+import util
+from util import ago, parse_pub
 
 st.set_page_config(page_title="ChiefEpicure", page_icon="🍜", layout="wide")
 
@@ -68,70 +71,11 @@ def db_stats(coll):
     }
 
 
-def parse_pub(s: str):
-    """Parse a feed date string to a tz-aware datetime, or None."""
-    if not s:
-        return None
-    try:
-        d = parsedate_to_datetime(s)          # RFC-822 (most RSS)
-        if d:
-            return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
-    except Exception:
-        pass
-    try:
-        d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))  # ISO
-        return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
-    except Exception:
-        return None
-
-
-def ago(d) -> str:
-    """Human 'time ago' label for a datetime (or '' if unknown)."""
-    if not d:
-        return ""
-    days = (dt.datetime.now(dt.timezone.utc) - d).days
-    if days <= 0:
-        return "today"
-    if days == 1:
-        return "yesterday"
-    if days < 7:
-        return f"{days}d ago"
-    if days < 30:
-        return f"{days // 7}w ago"
-    if days < 365:
-        return f"{days // 30}mo ago"
-    return d.strftime("%b %Y")
-
-
 @st.cache_data(show_spinner=False)
 def load_articles(count: int):
     """One record per article (deduped by URL), newest first. `count` is the
     corpus size — passing it busts the cache whenever the store changes."""
-    coll = _collection()
-    got = coll.get(include=["metadatas", "documents"])
-    ids, metas, docs = got["ids"], got["metadatas"], got["documents"]
-    arts = {}
-    for i, m in enumerate(metas):
-        u = m.get("url", "")
-        if not u:
-            continue
-        first = ids[i] == ingest.stable_id(u, 0)   # opening chunk → best excerpt
-        a = arts.get(u)
-        if a is None:
-            arts[u] = {"url": u, "title": m.get("title", "") or u,
-                       "source": m.get("source", ""), "region": m.get("region", ""),
-                       "city": m.get("city", ""), "image": m.get("image", ""),
-                       "date": m.get("date", ""), "priority": m.get("priority", 99),
-                       "text": docs[i], "_first": first}
-        elif first:
-            a["text"], a["_first"] = docs[i], True
-    out = []
-    for a in arts.values():
-        a["ts"] = parse_pub(a["date"])
-        out.append(a)
-    out.sort(key=lambda a: (a["ts"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc)),
-             reverse=True)
-    return out
+    return util.load_articles(_collection())
 
 
 # ── theme — ChiefEater palette (orange + green), in light and dark ────────────
@@ -366,6 +310,32 @@ with home_tab:
     st.markdown(f"<div class='kpi'>🆕 {fresh_wk} fresh this week · "
                 f"📚 {len(arts)} places · updated daily</div>", unsafe_allow_html=True)
 
+    # quick actions: Surprise me + today's digest
+    ac1, ac2, _ = st.columns([1.1, 1.3, 3])
+    if ac1.button("🎲 Surprise me", use_container_width=True) and arts:
+        # bias toward "good": authority or priority-1/2, prefer with a photo
+        pool = [a for a in arts if a["source"] == "Authority" or a["priority"] <= 2] or arts
+        withimg = [a for a in pool if a.get("image")]
+        st.session_state.surprise = random.choice(withimg or pool)["url"]
+    show_digest = ac2.toggle("📬 Today's digest", value=False)
+
+    if st.session_state.get("surprise"):
+        pick = next((a for a in arts if a["url"] == st.session_state.surprise), None)
+        if pick:
+            st.markdown("<div class='sechead'>🎲 Tonight, try…</div>", unsafe_allow_html=True)
+            render_card(pick, "surprise")
+
+    if show_digest:
+        with st.spinner("Building today's digest…"):
+            md, _html, _a, _f = digest.build(region=reg, city=cty, days=7, limit=10)
+        with st.container(border=True):
+            st.markdown(md)
+        st.download_button("⬇️ Download digest (.md)", md,
+                           file_name=f"chiefepicure-{NOW:%Y-%m-%d}.md",
+                           mime="text/markdown")
+        st.caption("Written daily to `digests/` by the scheduled job; add SMTP env "
+                   "vars to also get it emailed (see README).")
+
     if not arts:
         st.info("Nothing here yet for this city. Widen the filter, or add a feed "
                 "under **Add a source**.")
@@ -459,6 +429,10 @@ with find_tab:
 
 
 # ── tab: My list (memory of your reviews) ────────────────────────────────────
+def _apply_collections(url, key):
+    personal.set_collections_for(url, st.session_state.get(key, []))
+
+
 def render_saved(p, key):
     """A saved place with editable status / rating / note."""
     url = p.get("url", "")
@@ -484,6 +458,12 @@ def render_saved(p, key):
         note = st.text_input("My note", value=p.get("note", ""),
                              placeholder="what I had, what to order next time…",
                              key=f"nt_{key}")
+        cols_all = list(personal.load_collections().keys())
+        if cols_all:
+            st.multiselect("Collections", options=cols_all,
+                           default=personal.collections_for(url),
+                           key=f"col_{key}", on_change=_apply_collections,
+                           args=(url, f"col_{key}"))
         changed = (status != p.get("status", "want") or rating != int(p.get("rating", 0))
                    or note != p.get("note", ""))
         if remove:
@@ -505,6 +485,28 @@ with mylist_tab:
         been = [p for p in places if p.get("status") == "been"]
         st.markdown(f"<div class='kpi'>❤️ {len(places)} saved · ✅ {len(been)} been · "
                     f"🍽️ {len(want)} want to go</div>", unsafe_allow_html=True)
+
+        # ── collections (named lists) ────────────────────────────────────────
+        by_url = {p["url"]: p for p in places}
+        cols = personal.load_collections()
+        with st.expander(f"📚 Collections ({len(cols)})", expanded=bool(cols)):
+            nc1, nc2 = st.columns([3, 1])
+            new_name = nc1.text_input("New collection", key="new_col",
+                                      placeholder="e.g. Date night, Cheap eats, Omakase",
+                                      label_visibility="collapsed")
+            if nc2.button("➕ Create", use_container_width=True) and new_name.strip():
+                personal.create_collection(new_name.strip())
+                st.rerun()
+            for name, urls in cols.items():
+                titles = [f"[{by_url[u]['title']}]({u})" for u in urls if u in by_url]
+                cc1, cc2 = st.columns([5, 1])
+                cc1.markdown(f"**{name}** ({len(titles)}) — "
+                             + (" · ".join(titles) if titles else "_empty_"))
+                if cc2.button("🗑️", key=f"delc_{name}", help=f"Delete '{name}'"):
+                    personal.delete_collection(name)
+                    st.rerun()
+            if cols:
+                st.caption("Assign a place to collections from its card below.")
 
         if want:
             st.markdown("<div class='sechead'>🍽️ Want to go</div>", unsafe_allow_html=True)

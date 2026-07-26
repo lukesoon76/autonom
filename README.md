@@ -116,13 +116,15 @@ daily feed, with search and a personal list alongside.
 - **🏠 Today** — *"what's new & good in your city"*: authority (Michelin) picks
   plus the freshest blog finds, grouped by recency (This week / month / earlier),
   each an image card with a 🕘 relative date and a **🔖 Save** button. Aggregated
-  from whatever the daily refresh has pulled.
+  from whatever the daily refresh has pulled. Includes **🎲 Surprise me** (one
+  good pick for tonight) and a **📬 Today's digest** preview/download.
 - **🏙️ Your city** (sidebar) — set a home region/city (and optional lat,lng);
   it's saved and scopes the Today feed and searches.
 - **❤️ My list** — the app *remembers your reviews*: saved places as **Want to
-  go** / **Been**, with a star rating and a note, all persisted locally. A
-  **✨ Recommended for you** section suggests similar places from what you've
-  saved (Chope-style).
+  go** / **Been**, with a star rating and a note, all persisted locally.
+  Organise them into **📚 Collections** (named lists like "Date night",
+  "Cheap eats"). A **✨ Recommended for you** section suggests similar places
+  from what you've saved (Chope-style).
 - **Light / dark toggle** (sidebar → *Appearance*) — both keep ChiefEater's
   orange + green accents.
 - **🔎 Find food** — search box + region/city filters + a results slider; shows
@@ -205,6 +207,23 @@ launchctl unload ~/Library/LaunchAgents/com.chiefepicure.refresh.plist     # dis
 30 4 * * * cd ~/ChiefEpicure && .venv/bin/python ingest.py --min-priority 2 >> ~/ChiefEpicure/ingest.log 2>&1
 ```
 
+### Daily digest (markdown / email)
+
+`digest.py` builds a "what's new & good" digest (authority picks + freshest
+finds) as **Markdown + HTML** into `./digests/YYYY-MM-DD.*`, and a launchd job
+(`com.chiefepicure.digest`, 07:00) writes it daily. It's also in the app under
+**Today → 📬 Today's digest**.
+
+```bash
+python digest.py --days 7            # write ./digests/<date>.md + .html
+python digest.py --region MY --email # also email, IF the env vars below are set
+```
+
+Email is **off unless** all of these are set (no secrets are ever stored in the
+repo; the digest goes from/to your own account):
+`DIGEST_SMTP_HOST`, `DIGEST_SMTP_PORT`, `DIGEST_SMTP_USER`, `DIGEST_SMTP_PASS`,
+`DIGEST_EMAIL_FROM`, `DIGEST_EMAIL_TO`.
+
 ### Social media (Instagram / TikTok / Facebook / X)
 
 **Not supported by scraping — by design.** These platforms' robots.txt and Terms
@@ -260,9 +279,12 @@ ChiefEpicure/
   curate_authority.py       # load curated_authority.csv into the same collection
   enrich_geo.py             # add lat/lng to chunks (GPS extraction + optional geocode)
   enrich_media.py           # backfill og:image thumbnails onto existing chunks
-  personal.py               # home city + saved places/reviews (My list)
+  personal.py               # home city + saved places/reviews + collections
+  digest.py                 # daily "what's new & good" digest (md/html + email)
+  util.py                   # shared date parsing + article aggregation
   query.py                  # retrieve (+filters, +--near) -> answer via Claude -> cite
   app.py                    # Streamlit app (Today feed · Find · My list · Add source)
+  digests/                  # generated daily digests (git-ignored)
   config/user_sources.yaml  # feeds you add in the app (git-ignored; refreshed daily)
   config/user_data.yaml     # your home city + saved reviews (git-ignored, private)
   requirements.txt
