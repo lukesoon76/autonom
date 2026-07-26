@@ -501,8 +501,10 @@ def run(region, limit, min_priority, discover,
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="FoodRAG ingestion (MY & SG food blogs).")
-    ap.add_argument("--region", choices=["SG", "MY"], default=None,
-                    help="restrict to one region")
+    ap.add_argument("--region",
+                    choices=["SG", "MY", "TH", "ID", "PH", "VN", "KH", "LA",
+                             "MM", "BN", "ASEAN"],
+                    default=None, help="restrict to one region (ISO-ish code)")
     ap.add_argument("--min-priority", type=int, default=None, dest="min_priority",
                     help="keep sources with priority <= N (e.g. 2 skips priority-3)")
     ap.add_argument("--limit", type=int, default=15,

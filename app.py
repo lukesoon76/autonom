@@ -35,8 +35,10 @@ from util import ago, parse_pub
 
 st.set_page_config(page_title="ChiefEpicure", page_icon="🍜", layout="wide")
 
-REGION_LABEL = {"MY": "🇲🇾 Malaysia", "SG": "🇸🇬 Singapore",
-                "MY_SG": "🌏 MY & SG", "": "—"}
+REGION_LABEL = {"MY": "🇲🇾 Malaysia", "SG": "🇸🇬 Singapore", "TH": "🇹🇭 Thailand",
+                "ID": "🇮🇩 Indonesia", "PH": "🇵🇭 Philippines", "VN": "🇻🇳 Vietnam",
+                "KH": "🇰🇭 Cambodia", "LA": "🇱🇦 Laos", "MM": "🇲🇲 Myanmar",
+                "BN": "🇧🇳 Brunei", "ASEAN": "🌏 ASEAN", "MY_SG": "🌏 MY & SG", "": "—"}
 EXAMPLES = [
     "good char kway teow in KL",
     "chilli crab tonight",
@@ -206,10 +208,13 @@ with st.sidebar:
 
     st.divider()
     st.subheader("🏙️ Your city")
-    _reg_opts = ["All", "MY", "SG"]
-    region = st.radio("Region", _reg_opts, horizontal=True,
-                      index=_reg_opts.index(PREFS["region"]) if PREFS.get("region") in _reg_opts else 0,
-                      format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "All")
+    # region options are whatever's actually in the corpus (grows with ASEAN)
+    _present = [r for r, _ in stats["regions"].most_common() if r]
+    _reg_opts = ["All"] + sorted(_present) if _present else ["All", "MY", "SG"]
+    region = st.selectbox("Region", _reg_opts,
+                          index=_reg_opts.index(PREFS["region"])
+                          if PREFS.get("region") in _reg_opts else 0,
+                          format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "🌏 All")
     city = st.text_input("City", value=PREFS.get("city", ""),
                          placeholder="e.g. Kuala Lumpur / Singapore")
     if st.button("📌 Save as my home city", use_container_width=True):

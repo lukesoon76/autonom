@@ -159,7 +159,10 @@ def main():
     ap = argparse.ArgumentParser(description="FoodRAG query (MY & SG).")
     ap.add_argument("question")
     ap.add_argument("--k", type=int, default=6, help="snippets to retrieve")
-    ap.add_argument("--region", choices=["SG", "MY"], default=None)
+    ap.add_argument("--region",
+                    choices=["SG", "MY", "TH", "ID", "PH", "VN", "KH", "LA",
+                             "MM", "BN", "ASEAN"],
+                    default=None)
     ap.add_argument("--city", default=None)
     ap.add_argument("--near", default=None,
                     help='"lat,lng" to rank by proximity (run enrich_geo.py first)')
