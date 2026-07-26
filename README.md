@@ -83,12 +83,21 @@ Re-running is **idempotent**: chunk ids are `sha1(url#index)` and writes use
 `upsert`, so nothing is duplicated.
 
 **3. Add authoritative picks (optional).** Michelin / Asia's 50 Best are never
-scraped — curate them by hand in `config/curated_authority.csv`, then load them
-into the same collection:
+scraped — they're curated as **facts** (name / city / stars / cuisine / url),
+*not* the guide's review prose (copyright). Two ways to add them:
+
+- **In the app:** *Add a source → ⭐ Add a Michelin / authority pick* — type each
+  entry straight from a printed guide (e.g. the MICHELIN Guide KL/Penang). It
+  appends to `config/curated_authority.csv` and indexes it immediately.
+- **By file:** edit `config/curated_authority.csv` (columns
+  `name,city,region,stars,cuisine,url,note`; `url` optional), then:
 
 ```bash
 python curate_authority.py
 ```
+
+Either way they surface under **Today → ⭐ Michelin & authority picks** and in
+search, tagged `Authority`.
 
 **4. Ask.** Retrieve, then answer with citations:
 

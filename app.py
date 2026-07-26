@@ -25,6 +25,7 @@ try:
 except ImportError:
     pass
 
+import curate_authority as authority
 import digest
 import ingest
 import personal
@@ -619,3 +620,47 @@ with add_tab:
                 unsafe_allow_html=True)
         st.caption("Managed in `config/user_sources.yaml`. The scheduled job runs "
                    "`ingest.py --min-priority 2`, so priority-1&2 feeds refresh daily.")
+
+    # ── add a Michelin / authority pick (e.g. from the printed guide) ────────
+    st.divider()
+    st.markdown("### ⭐ Add a Michelin / authority pick")
+    st.caption("For entries from a printed guide (e.g. the MICHELIN Guide KL/Penang) "
+               "or Asia's 50 Best. These are **curated facts, never scraped** — "
+               "enter name / stars / cuisine only, not the guide's review text. "
+               "They show under **Today → ⭐ Michelin & authority picks**.")
+    STAR_OPTS = ["", "1 MICHELIN Star", "2 MICHELIN Stars", "3 MICHELIN Stars",
+                 "Bib Gourmand", "MICHELIN Selected", "Asia's 50 Best"]
+    with st.form("add_authority", clear_on_submit=True):
+        an = st.text_input("Restaurant name", placeholder="e.g. Dewakan")
+        ac1, ac2, ac3 = st.columns(3)
+        acity = ac1.text_input("City", placeholder="Kuala Lumpur / George Town")
+        areg = ac2.selectbox("Region", ["MY", "SG"], index=0)
+        astars = ac3.selectbox("Distinction", STAR_OPTS, index=0)
+        ac4, ac5 = st.columns(2)
+        acuisine = ac4.text_input("Cuisine", placeholder="Modern Malaysian")
+        aurl = ac5.text_input("Website / guide URL (optional)",
+                              placeholder="https://…")
+        anote = st.text_input("Your own one-line note (optional)",
+                              placeholder="e.g. tasting menu; book ahead")
+        asub = st.form_submit_button("⭐ Add pick", type="primary")
+    if asub:
+        if not an.strip():
+            st.warning("A restaurant name is required.")
+        else:
+            row = {"name": an.strip(), "city": acity.strip(), "region": areg,
+                   "stars": astars, "cuisine": acuisine.strip(),
+                   "url": aurl.strip(), "note": anote.strip()}
+            authority.append_csv(row)
+            authority.add_rows([row], embedder=_embedder(), coll=coll)
+            st.success(f"⭐ Added **{row['name']}**"
+                       + (f" ({astars})" if astars else "")
+                       + " to your authority picks and saved it to "
+                       "`config/curated_authority.csv`.")
+
+    try:
+        n_auth = len(coll.get(where={"source": "Authority"})["ids"])
+    except Exception:
+        n_auth = 0
+    st.caption(f"You currently have **{n_auth}** authority picks. Bulk-edit them any "
+               "time in `config/curated_authority.csv`, then rerun "
+               "`python curate_authority.py`.")
