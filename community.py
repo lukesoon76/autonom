@@ -12,11 +12,14 @@ from datetime import datetime, timezone
 
 import auth
 
-UPLOADS_DIR = "uploads"
+# Saved under ./static so Streamlit's static server can serve them (config.toml
+# server.enableStaticServing=true). Files in ./static are exposed at URL
+# "app/static/…", which works as an <img src> inside the app.
+UPLOADS_DIR = os.path.join("static", "uploads")
 
 
 def save_images(username: str, files) -> list[str]:
-    """Persist uploaded image files under uploads/<user>/; return their paths."""
+    """Persist uploaded images under static/uploads/<user>/; return their paths."""
     if not files:
         return []
     d = os.path.join(UPLOADS_DIR, auth.safe_key(username))
@@ -29,6 +32,17 @@ def save_images(username: str, files) -> list[str]:
             out.write(f.getbuffer())
         paths.append(path)
     return paths
+
+
+def served_url(path_or_url: str) -> str:
+    """Map a stored image reference to something a browser <img> can load:
+    external http(s) URLs pass through; local static/ paths become app/static/…"""
+    if not path_or_url:
+        return ""
+    if path_or_url.startswith(("http://", "https://", "app/static/")):
+        return path_or_url
+    p = path_or_url.replace(os.sep, "/")
+    return "app/" + p if p.startswith("static/") else ""
 
 
 def _rid(username: str, review_id: str) -> str:
@@ -52,7 +66,7 @@ def embed_review(review: dict, username: str, display: str, coll, embedder) -> N
         "city": review.get("city", ""),
         "url": review.get("url", ""),
         "title": review["name"],
-        "image": (review.get("images") or [""])[0],
+        "image": served_url((review.get("images") or [""])[0]),
         "priority": 2,
         "date": review.get("ts", ""),
         "ingested": datetime.now(timezone.utc).isoformat(),

@@ -6,3 +6,7 @@ backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#fafafa"
 textColor = "#111111"
 font = "sans serif"
+
+[server]
+# serve member-uploaded photos (./static/uploads) so they render in cards
+enableStaticServing = true

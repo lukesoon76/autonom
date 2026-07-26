@@ -11,4 +11,4 @@ digests/
 *.log
 config/users.json
 config/users_data/
-uploads/
+static/uploads/
