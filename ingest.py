@@ -182,8 +182,9 @@ def discover_feed(site_url: str) -> str | None:
 
 def urls_from_rss(url: str, limit: int) -> list[dict]:
     parsed = parse_feed(url)
+    entries = parsed.entries if (limit is None or limit <= 0) else parsed.entries[:limit]
     out = []
-    for e in parsed.entries[:limit]:
+    for e in entries:
         out.append({
             "url": e.get("link"),
             "title": e.get("title", ""),
@@ -212,17 +213,21 @@ def _read_sitemap(url: str) -> tuple[str | None, list[str]]:
 
 
 def urls_from_sitemap(url: str, url_filter: str, limit: int) -> list[dict]:
+    unlimited = limit is None or limit <= 0
     kind, locs = _read_sitemap(url)
     if kind == "sitemapindex":
-        # Descend into child sitemaps, in order, until we have `limit` matches.
+        # Descend into child sitemaps, in order, until we have `limit` matches
+        # (or all of them, when unlimited).
         collected: list[str] = []
         for child in locs:
             _, child_locs = _read_sitemap(child)
             collected.extend(u for u in child_locs if url_filter in u)
-            if len(collected) >= limit:
+            if not unlimited and len(collected) >= limit:
                 break
         locs = collected
-    filtered = [u for u in locs if url_filter in u][:limit]
+    filtered = [u for u in locs if url_filter in u]
+    if not unlimited:
+        filtered = filtered[:limit]
     return [{"url": u, "title": "", "date": ""} for u in filtered]
 
 
@@ -401,7 +406,8 @@ def add_user_source(name, url, *, type="rss", region="", city="",
     return entry
 
 
-def load_sources(path: str, region: str | None, min_priority: int | None) -> list[dict]:
+def load_sources(path: str, region: str | None, min_priority: int | None,
+                 source: str | None = None) -> list[dict]:
     with open(path) as f:
         srcs = yaml.safe_load(f)["sources"]
     srcs = srcs + load_user_sources()          # merge user-added feeds
@@ -410,6 +416,8 @@ def load_sources(path: str, region: str | None, min_priority: int | None) -> lis
     if min_priority is not None:
         # priority 1 = most important; --min-priority 2 keeps 1 and 2, drops 3.
         srcs = [s for s in srcs if s.get("priority", 99) <= min_priority]
+    if source:
+        srcs = [s for s in srcs if source.lower() in s.get("name", "").lower()]
     return srcs
 
 
@@ -445,12 +453,12 @@ def prune_sponsored(coll) -> int:
 
 
 def run(region, limit, min_priority, discover,
-        keep_sponsored=False, prune=False):
+        keep_sponsored=False, prune=False, source=None):
     if prune:
         prune_sponsored(get_collection())
         return
 
-    sources = load_sources(SOURCES_PATH, region, min_priority)
+    sources = load_sources(SOURCES_PATH, region, min_priority, source)
 
     if discover:
         for s in sources:
@@ -497,7 +505,10 @@ if __name__ == "__main__":
                     help="restrict to one region")
     ap.add_argument("--min-priority", type=int, default=None, dest="min_priority",
                     help="keep sources with priority <= N (e.g. 2 skips priority-3)")
-    ap.add_argument("--limit", type=int, default=15, help="max articles per source")
+    ap.add_argument("--limit", type=int, default=15,
+                    help="max articles per source (0 = no limit / ingest everything)")
+    ap.add_argument("--source", default=None,
+                    help="only sources whose name contains this (e.g. ChiefEater)")
     ap.add_argument("--discover", action="store_true",
                     help="probe/repair feeds then exit (no ingest)")
     ap.add_argument("--keep-sponsored", action="store_true", dest="keep_sponsored",
@@ -507,6 +518,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     try:
         run(args.region, args.limit, args.min_priority, args.discover,
-            keep_sponsored=args.keep_sponsored, prune=args.prune_sponsored)
+            keep_sponsored=args.keep_sponsored, prune=args.prune_sponsored,
+            source=args.source)
     except KeyboardInterrupt:
         sys.exit(130)

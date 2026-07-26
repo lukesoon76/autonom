@@ -8,3 +8,4 @@ __pycache__/
 ingest.log
 
 digests/
+*.log

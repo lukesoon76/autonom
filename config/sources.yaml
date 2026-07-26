@@ -27,6 +27,19 @@ sources:
       instead. Individual place pages carry full addresses — ideal seed for
       geo-enrichment ("nearby"). The at_biz_dir-sitemap*.xml files are a business
       directory if you later want structured address rows.
+  - name: ChiefEater Directory
+    region: MY
+    city: Kuala Lumpur
+    type: sitemap
+    priority: 3      # ~7,900 static place entries — full scrape only, NOT daily
+    url: https://chiefeater.com/sitemap_index.xml
+    url_filter: /chiefeaters/
+    note: >
+      The full ChiefEater community place directory (individual restaurant
+      entries with reviewer notes + cuisine tags). Priority 3 so the daily
+      --min-priority 2 refresh skips it; ingest with
+      `python ingest.py --source ChiefEater --limit 0`. Largely static, so a
+      one-off full scrape is enough; re-run occasionally to pick up new places.
   - name: KL Foodie
     region: MY
     city: Kuala Lumpur
