@@ -1,0 +1,31 @@
+# ===== THAILAND =====
+https://tomeatsjanecooks.com | TH | 2
+https://www.bangkokglutton.com | TH | 3
+https://www.eatingasia.net | TH | 3
+https://www.faragang.com | TH | 3
+# ===== INDONESIA =====
+https://www.myfunfoodiary.com | ID | 2
+https://www.jktgo.com | ID | 3
+https://foodkulture.id | ID | 3
+https://www.jakartafoodie.com | ID | 3
+# ===== PHILIPPINES =====
+https://www.thepoortraveler.net | PH | 3
+https://www.pinoyadventurista.com | PH | 3
+https://www.spot.ph | PH | 2
+https://www.thepeachkitchen.com | PH | 3
+# ===== VIETNAM =====
+https://rustycompass.com | VN | 3
+https://saigoneer.com | VN | 2
+https://www.thebureaudispatch.com | VN | 3
+# ===== MALAYSIA =====
+https://www.friedchillies.com | MY | 2
+https://www.malaysianflavours.com | MY | 2
+https://johorkaki.blogspot.com | MY | 2
+https://www.crispoflife.com | MY | 3
+# ===== SINGAPORE =====
+https://www.eatwhattonight.com | SG | 2
+https://www.misstamchiak.com | SG | 2
+https://www.sgfoodonfoot.com | SG | 3
+# ===== CREATORS (YouTube) =====
+https://www.youtube.com/@TheFoodRanger | ASEAN | 3
+https://www.youtube.com/@markwiens | TH | 2
