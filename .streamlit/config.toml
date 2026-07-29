@@ -10,3 +10,6 @@ font = "sans serif"
 [server]
 # serve member-uploaded photos (./static/uploads) so they render in cards
 enableStaticServing = true
+# don't let the source-watcher walk torch/transformers modules (it triggers a
+# fatal torchvision import); we don't need hot-reload for a deployed app
+fileWatcherType = "none"
