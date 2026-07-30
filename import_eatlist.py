@@ -47,11 +47,14 @@ def read_rows(wb_path):
             "city": g(r, "City / State"),
             "area": g(r, "Area / Location"),
             "cuisine": g(r, "Cuisine / Style") or g(r, "Food Type Category"),
+            "food_type": g(r, "Food Type Category"),
             "address": g(r, "Address"),
             "accolades": g(r, "Accolades"),
             "order": g(r, "What To Order / Signature"),
             "rating": g(r, "Google Rating"),
             "price": g(r, "Price Guide (per pax)"),
+            "hours": g(r, "Typical Hours"),
+            "tier": g(r, "Source"),
             "url": g(r, "Instagram / Web"),
             "notes": g(r, "Notes"),
         }
@@ -79,31 +82,51 @@ def stable_id(r) -> str:
     return hashlib.sha1(("eatlist#" + key).encode()).hexdigest()
 
 
+def _rating(s):
+    try:
+        return float(str(s).strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def run(wb_path, batch=256):
     embedder = ingest.get_embedder()
     coll = ingest.get_collection()
-    try:                                  # rebuild the source cleanly each run
-        coll.delete(where={"source": "Eat List"})
-    except Exception:
-        pass
+    # CORE REBUILD: the curated Master List is the source of truth. Purge every
+    # scraped chunk, keeping only Michelin authority and community member
+    # reviews; the Eat List rows are then rebuilt fresh below.
+    got = coll.get(include=["metadatas"])
+    kill = [i for i, m in zip(got["ids"], got["metadatas"])
+            if not (m.get("source") == "Authority"
+                    or str(m.get("source", "")).startswith("ChiefEpicure"))]
+    for k in range(0, len(kill), 500):
+        coll.delete(ids=kill[k:k + 500])
+    print(f"purged {len(kill)} non-core chunks (scraped sources + old Eat List)")
+
     now = datetime.now(timezone.utc).isoformat()
     by_id = {}                            # dedupe: last row wins per stable id
     for r in read_rows(wb_path):
-        by_id[stable_id(r)] = {
-            "doc": build_doc(r),
-            "meta": {
-                "source": "Eat List",
-                "region": COUNTRY_REGION.get(r["country"].lower(), ""),
-                "city": r["city"] or r["area"],
-                "url": r["url"],
-                "title": r["name"],
-                "image": "",
-                "priority": 1,
-                "cuisine": r["cuisine"],
-                "date": "",
-                "ingested": now,
-            },
+        meta = {
+            "source": "Eat List",
+            "region": COUNTRY_REGION.get(r["country"].lower(), ""),
+            "city": r["city"] or r["area"],
+            "url": r["url"],
+            "title": r["name"],
+            "image": "",
+            "priority": 1,
+            "cuisine": r["cuisine"],
+            "food_type": r["food_type"],
+            "accolades": r["accolades"],
+            "price": r["price"],
+            "hours": r["hours"],
+            "address": r["address"],
+            "order": r["order"],
+            "tier": r["tier"],
+            "rating": _rating(r["rating"]),
+            "date": "",
+            "ingested": now,
         }
+        by_id[stable_id(r)] = {"doc": build_doc(r), "meta": meta}
     ids = list(by_id)
     docs = [by_id[i]["doc"] for i in ids]
     metas = [by_id[i]["meta"] for i in ids]

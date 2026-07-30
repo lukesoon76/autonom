@@ -83,90 +83,101 @@ def load_articles(count: int):
     return util.load_articles(_collection())
 
 
-# ── theme — ChiefEater.com look (warm orange + fresh green), light & dark ────
+# ── theme — pure black & white, food-GPT minimal (ChatGPT/Eatbook register) ──
+# All accents resolve to ink so the whole UI is strictly monochrome.
 THEME = {
-    "Light": dict(bg="#ffffff", sidebar="#fff7ec", card="#ffffff", panel="#ffffff",
-                  ink="#252525", muted="#6b6f76", border="#f0e6d6", thumb="#fdf3e3",
-                  orange="#fa8b0c", orange_d="#d9760a", green="#28a800",
-                  warn_bg="#fff4e6", warn_bd="#ffe0b8",
-                  reg_bg="#e8f7e3", reg_fg="#1f7a00", geo_bg="#fff1de",
-                  ans_bg="#fff8ef", chip="#fdf0dd"),
-    "Dark": dict(bg="#1a140c", sidebar="#211a10", card="#231b11", panel="#2a2013",
-                 ink="#f6efe4", muted="#b6a892", border="#3a2e1c", thumb="#2f2415",
-                 orange="#ff9e2c", orange_d="#ffb455", green="#5ec53b",
-                 warn_bg="#2a2113", warn_bd="#5a4420",
-                 reg_bg="#173316", reg_fg="#7ddc5b", geo_bg="#33260f",
-                 ans_bg="#20180d", chip="#2f2415"),
+    "Light": dict(bg="#ffffff", sidebar="#f7f7f8", card="#ffffff", panel="#ffffff",
+                  ink="#0d0d0d", muted="#6e6e80", border="#e5e5e5", thumb="#efefef",
+                  orange="#0d0d0d", orange_d="#0d0d0d", green="#0d0d0d",
+                  warn_bg="#f7f7f8", warn_bd="#e5e5e5",
+                  reg_bg="#f0f0f0", reg_fg="#111111", geo_bg="#f0f0f0",
+                  ans_bg="#f7f7f8", chip="#f0f0f0"),
+    "Dark": dict(bg="#0d0d0d", sidebar="#171717", card="#161616", panel="#1e1e1e",
+                 ink="#ececf1", muted="#9a9aa5", border="#2b2b2b", thumb="#222222",
+                 orange="#ececf1", orange_d="#ececf1", green="#ececf1",
+                 warn_bg="#171717", warn_bd="#2b2b2b",
+                 reg_bg="#232323", reg_fg="#dddddd", geo_bg="#232323",
+                 ans_bg="#171717", chip="#232323"),
 }
 
 
 def build_css(p: dict) -> str:
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Oxygen:wght@400;700&display=swap');
-/* ChiefEater.com look: Oxygen body, Abril Fatface display, warm + rounded */
-html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button {{
-    font-family: 'Oxygen', -apple-system, sans-serif;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+/* pure black & white, food-GPT minimal — Inter throughout */
+html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button,
+h1, h2, h3, h4, .brand, .sechead {{
+    font-family: 'Inter', -apple-system, 'Helvetica Neue', sans-serif;
 }}
-h1, h2, h3, .brand, .sechead {{ font-family: 'Abril Fatface', Georgia, serif !important; }}
 
 /* surfaces (drive the light/dark flip) */
 .stApp, [data-testid="stHeader"] {{ background: {p['bg']}; }}
-[data-testid="stSidebar"] {{ background: {p['sidebar']}; }}
+[data-testid="stSidebar"] {{ background: {p['sidebar']}; border-right:1px solid {p['border']}; }}
 .stApp, .stMarkdown, p, span, label, li, .stRadio, .stSlider, h1, h2, h3, h4 {{ color: {p['ink']}; }}
 [data-testid="stSidebar"] * {{ color: {p['ink']}; }}
 .stTextInput input, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
 [data-baseweb="select"] > div, [data-testid="stChatInput"] textarea {{
     background: {p['panel']} !important; color: {p['ink']} !important;
-    border-color: {p['border']} !important; }}
-[data-testid="stExpander"] {{ border-color: {p['border']}; }}
+    border-color: {p['border']} !important; border-radius: 12px !important; }}
+[data-testid="stChatInput"] {{ border:1px solid {p['border']}; border-radius:14px;
+    background:{p['panel']}; box-shadow:0 2px 10px rgba(0,0,0,.04); }}
+[data-testid="stExpander"] {{ border-color: {p['border']}; border-radius:10px; }}
 
-/* buttons: primary = orange fill; secondary = warm outline; rounded */
-.stButton button, .stDownloadButton button {{ border-radius: 10px !important; }}
-.stButton button[kind="primary"] {{ background:{p['orange']} !important; color:#fff !important;
-    border:1px solid {p['orange']} !important; font-weight:700; }}
+/* buttons: primary = solid ink, secondary = hairline; pill-rounded */
+.stButton button, .stDownloadButton button {{ border-radius: 999px !important; font-weight:600; }}
+.stButton button[kind="primary"] {{ background:{p['ink']} !important; color:{p['bg']} !important;
+    border:1px solid {p['ink']} !important; }}
 .stButton button[kind="secondary"] {{ background:{p['panel']}; color:{p['ink']};
     border:1px solid {p['border']}; }}
-.stButton button[kind="secondary"]:hover {{ border-color:{p['orange']}; color:{p['orange']}; }}
+.stButton button[kind="secondary"]:hover {{ border-color:{p['ink']}; }}
+.stTabs [data-baseweb="tab-highlight"] {{ background:{p['ink']}; }}
 
-/* brand wordmark */
-.brand {{ font-size: 2.9rem; line-height: 1.05; color: {p['ink']}; margin: 0; }}
-.brand .chief {{ color: {p['orange']}; }}
-.brand .dot {{ color: {p['green']}; }}
-.tagline {{ font-family: 'Libre Caslon Text', Georgia, serif; font-style: italic;
-           color: {p['muted']}; font-size: 1.02rem; margin: 2px 0; }}
-.warn {{ font-family:'Oxygen',sans-serif; font-size:.8rem; color:{p['orange_d']};
-         background:{p['warn_bg']}; border:1px solid {p['warn_bd']}; border-radius:8px;
-         padding:3px 10px; display:inline-block; margin-top:6px; }}
+/* brand wordmark — mono, tight grotesk */
+.brand {{ font-size: 2.2rem; font-weight: 800; letter-spacing:-0.03em; line-height:1.05;
+         color: {p['ink']}; margin: 0; }}
+.brand .chief {{ color: {p['ink']}; }}
+.brand .dot {{ color: {p['ink']}; }}
+.tagline {{ color: {p['muted']}; font-size: 0.95rem; margin: 4px 0 2px; }}
+.warn {{ font-size:.72rem; color:{p['muted']}; background:{p['warn_bg']};
+         border:1px solid {p['warn_bd']}; border-radius:999px;
+         padding:3px 12px; display:inline-block; margin-top:6px; }}
 
-/* result cards */
-.card{{display:flex; gap:14px; align-items:flex-start;
-      border:1px solid {p['border']}; border-left:4px solid {p['orange']};
-      border-radius:12px; padding:14px 16px; margin-bottom:12px;
-      background:{p['card']}; box-shadow:0 1px 4px rgba(120,80,0,.06);}}
-.thumb-wrap{{position:relative; width:104px; height:104px; flex:0 0 104px;
-            border-radius:10px; overflow:hidden; background:{p['thumb']};}}
+/* result cards — image-forward, clean */
+.card{{display:flex; gap:16px; align-items:flex-start;
+      border:1px solid {p['border']}; border-radius:16px; padding:12px 14px;
+      margin-bottom:12px; background:{p['card']};}}
+.thumb-wrap{{position:relative; width:128px; height:128px; flex:0 0 128px;
+            border-radius:12px; overflow:hidden; background:{p['thumb']};}}
 .thumb, .thumb-ph{{position:absolute; inset:0; width:100%; height:100%;}}
 .thumb{{object-fit:cover;}}
 .thumb-ph{{display:flex; align-items:center; justify-content:center;
-          font-size:2.1rem; color:{p['muted']};}}
+          font-size:2.2rem; color:{p['muted']}; filter:grayscale(1);}}
 .card .body{{flex:1; min-width:0;}}
-.card h4{{margin:0 0 6px 0; font-family:'Oxygen',sans-serif; font-weight:700;
-         font-size:1.03rem; color:{p['ink']};}}
-.badge{{display:inline-block; font-size:.72rem; padding:2px 9px; border-radius:999px;
-       background:{p['chip']}; color:{p['muted']}; margin:0 6px 4px 0;}}
+.card h4{{margin:0 0 6px 0; font-weight:700; font-size:1.05rem; color:{p['ink']};
+         letter-spacing:-0.01em;}}
+.badge{{display:inline-block; font-size:.7rem; font-weight:500; padding:2px 9px;
+       border-radius:999px; background:{p['chip']}; color:{p['muted']};
+       margin:0 6px 5px 0; border:1px solid {p['border']};}}
 .badge-reg{{background:{p['reg_bg']}; color:{p['reg_fg']};}}
-.badge-geo{{background:{p['geo_bg']}; color:{p['orange_d']};}}
-.snippet{{color:{p['muted']}; font-size:.9rem; line-height:1.5; margin:6px 0;}}
-.src a{{font-size:.82rem; color:{p['orange_d']}; text-decoration:none; font-weight:700;}}
-.answer{{border-left:4px solid {p['green']}; background:{p['ans_bg']}; border-radius:10px;
-        padding:10px 16px; color:{p['ink']};}}
+.badge-geo{{background:{p['geo_bg']}; color:{p['ink']};}}
+.snippet{{color:{p['muted']}; font-size:.9rem; line-height:1.55; margin:6px 0;}}
+.src a{{font-size:.8rem; color:{p['ink']}; text-decoration:none; font-weight:600;
+       border-bottom:1px solid {p['border']};}}
+.answer{{border:1px solid {p['border']}; background:{p['ans_bg']}; border-radius:14px;
+        padding:14px 18px; color:{p['ink']};}}
 [data-testid="stVerticalBlockBorderWrapper"]{{border-color:{p['border']} !important;
-    border-radius:12px; background:{p['card']};}}
-.sechead{{font-family:'Abril Fatface',serif; font-size:1.4rem; color:{p['ink']};
-         margin:1rem 0 .4rem;}}
-.kpi{{color:{p['muted']}; font-size:.9rem; margin-bottom:.5rem;}}
-.stars{{color:{p['orange']}; letter-spacing:1px;}}
+    border-radius:16px; background:{p['card']};}}
+[data-testid="stChatMessage"]{{background:{p['card']}; border:1px solid {p['border']};
+    border-radius:14px;}}
+.sechead{{font-weight:800; letter-spacing:-0.02em; font-size:1.35rem; color:{p['ink']};
+         margin:1.1rem 0 .5rem;}}
+.kpi{{color:{p['muted']}; font-size:.85rem; margin-bottom:.6rem;}}
+.stars{{color:{p['ink']}; letter-spacing:1px;}}
+/* GPT-style hero prompt suggestions */
+.hero-h{{font-weight:800; font-size:1.9rem; letter-spacing:-0.03em; color:{p['ink']};
+        text-align:center; margin:1.4rem 0 .3rem;}}
+.hero-s{{color:{p['muted']}; text-align:center; margin-bottom:1.1rem;}}
 </style>
 """
 
@@ -223,11 +234,10 @@ DISPLAY = auth.display_name(USER) if USER else "guest"
 
 # ── header ───────────────────────────────────────────────────────────────────
 st.markdown(
-    f"<div class='brand'>🍜 <span class='chief'>Chief</span>"
-    f"<span style='color:{PAL['ink']}'>Epicure</span><span class='dot'>.</span></div>"
-    "<div class='tagline'>Real food, real reviews — where to eat across "
-    "Malaysia, Singapore &amp; ASEAN, always with sources.</div>"
-    "<div class='warn'>⚠️ Warning: guaranteed to make you hungry.</div>",
+    "<div class='brand'>ChiefEpicure</div>"
+    "<div class='tagline'>Your food guide for Malaysia &amp; Singapore — ask it "
+    "anything, grounded in a curated list of real places.</div>"
+    "<div class='warn'>Curated · Member-reviewed · No scraping</div>",
     unsafe_allow_html=True,
 )
 st.write("")
@@ -276,9 +286,9 @@ with st.sidebar:
     else:
         st.caption("💡 No API key — ranked snippets")
 
-home_tab, chat_tab, find_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
-    ["🏠  Today", "💬  Ask", "🔎  Find food", "❤️  My list", "✍️  Contribute",
-     "➕  Add a source"])
+chat_tab, home_tab, find_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
+    ["💬  Ask", "🍽️  Discover", "🔎  Find", "❤️  My list", "✍️  Contribute",
+     "➕  Add a place"])
 
 
 # ── shared card renderer (thumbnail + body + Save) ───────────────────────────
@@ -429,18 +439,30 @@ with home_tab:
                 render_card(a, f"undated_{j}")
 
 
-# ── tab: Ask (RAG chatbot) ───────────────────────────────────────────────────
+# ── tab: Ask (food-GPT chatbot) ──────────────────────────────────────────────
 with chat_tab:
-    st.markdown("<div class='sechead'>💬 Ask ChiefEpicure</div>", unsafe_allow_html=True)
-    st.caption("Ask in plain language — “best char kway teow in Penang?”, “omakase "
-               "under $250 in Singapore?”, “supper near Bangsar?”. Answers are "
-               "grounded in the corpus, with sources. Sidebar filters apply.")
     if "chat" not in st.session_state:
         st.session_state.chat = []
-    cc1, cc2 = st.columns([5, 1])
-    if cc2.button("🗑️ Clear", key="chat_clear"):
-        st.session_state.chat = []
-        st.rerun()
+
+    if not st.session_state.chat:
+        st.markdown("<div class='hero-h'>What are you craving?</div>",
+                    unsafe_allow_html=True)
+        st.markdown("<div class='hero-s'>Ask for a dish, an area, a vibe — answers come "
+                    "from a curated list of real places, with sources.</div>",
+                    unsafe_allow_html=True)
+        EXAMPLES = ["Best char kway teow in Penang", "Omakase under $250 in Singapore",
+                    "Supper spots in Bangsar", "Michelin Bib hawker in KL",
+                    "Nasi lemak worth driving for"]
+        ecols = st.columns(len(EXAMPLES))
+        for c, ex in zip(ecols, EXAMPLES):
+            if c.button(ex, key=f"ex_{ex}", use_container_width=True):
+                st.session_state.pending_q = ex
+                st.rerun()
+    else:
+        _c1, _c2 = st.columns([6, 1])
+        if _c2.button("🗑️ Clear", key="chat_clear"):
+            st.session_state.chat = []
+            st.rerun()
 
     for m in st.session_state.chat:
         with st.chat_message(m["role"], avatar="🍜" if m["role"] == "assistant" else "🙂"):
@@ -449,7 +471,7 @@ with chat_tab:
                 with st.expander("Sources"):
                     st.markdown(m["sources"])
 
-    prompt = st.chat_input("Ask about where to eat…")
+    prompt = st.chat_input("Message ChiefEpicure…") or st.session_state.pop("pending_q", None)
     if prompt:
         st.session_state.chat.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="🙂"):

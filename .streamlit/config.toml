@@ -1,10 +1,9 @@
-# ChiefEater.com look: warm orange primary, fresh-green accent, near-black
-# text on light. (Dark mode applied at runtime via the Appearance toggle.)
+# Pure black & white, food-GPT minimal (ChatGPT register). Dark mode at runtime.
 [theme]
-primaryColor = "#fa8b0c"
+primaryColor = "#0d0d0d"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#fff7ec"
-textColor = "#252525"
+secondaryBackgroundColor = "#f7f7f8"
+textColor = "#0d0d0d"
 font = "sans serif"
 
 [server]
