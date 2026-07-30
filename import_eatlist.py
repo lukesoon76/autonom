@@ -71,13 +71,21 @@ def build_doc(r) -> str:
 
 
 def stable_id(r) -> str:
-    key = (r["url"] or f"{r['name']}|{r['city']}").strip().lower()
+    # key on a real URL if present, else name+city — the workbook's
+    # "Instagram / Web" field is often just an @handle shared by many venues,
+    # so never use it as the dedup key.
+    url = (r["url"] or "").strip().lower()
+    key = url if url.startswith("http") else f"{r['name']}|{r['city']}".strip().lower()
     return hashlib.sha1(("eatlist#" + key).encode()).hexdigest()
 
 
 def run(wb_path, batch=256):
     embedder = ingest.get_embedder()
     coll = ingest.get_collection()
+    try:                                  # rebuild the source cleanly each run
+        coll.delete(where={"source": "Eat List"})
+    except Exception:
+        pass
     now = datetime.now(timezone.utc).isoformat()
     by_id = {}                            # dedupe: last row wins per stable id
     for r in read_rows(wb_path):
