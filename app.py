@@ -29,6 +29,8 @@ import auth
 import community
 import curate_authority as authority
 import digest
+import facets
+import geo_gazetteer
 import ingest
 import personal
 import query
@@ -81,6 +83,59 @@ def load_articles(count: int):
     """One record per article (deduped by URL), newest first. `count` is the
     corpus size — passing it busts the cache whenever the store changes."""
     return util.load_articles(_collection())
+
+
+@st.cache_data(show_spinner=False)
+def facet_options(count: int):
+    """Food-type options actually present in the corpus (most common first).
+    `count` busts the cache when the store changes."""
+    got = _collection().get(include=["metadatas"])
+    ft = Counter((m.get("food_type") or "").strip()
+                 for m in got.get("metadatas", []) or [])
+    return [t for t, _ in ft.most_common() if t]
+
+
+@st.cache_data(show_spinner="Placing pins…")
+def map_points(count: int, region, area, cuisine, acc, price, ft):
+    """Whole-corpus → mappable rows, deduped by (title, city) and filtered by
+    the sidebar region/area/cuisine + facets. Each row is snapped to an area
+    centroid via the offline gazetteer. Returns (rows, n_unmapped)."""
+    got = _collection().get(include=["metadatas", "documents"])
+    metas, docs = got.get("metadatas", []) or [], got.get("documents", []) or []
+    terms = [t.strip().lower() for t in (area, cuisine) if t and t.strip()]
+    rows, seen, unmapped = [], set(), 0
+    for m, d in zip(metas, docs):
+        if region and region != "All" and m.get("region") != region:
+            continue
+        if not facets.passes(m, acc, price, ft):
+            continue
+        title = (m.get("title") or "").strip()
+        if not title:
+            continue
+        key = (title.lower(), (m.get("city") or "").lower())
+        if key in seen:
+            continue
+        if terms:
+            hay = (f"{title} {m.get('city','')} {m.get('address','')} "
+                   f"{m.get('cuisine','')} {d}").lower()
+            if not all(t in hay for t in terms):
+                continue
+        seen.add(key)
+        loc = geo_gazetteer.locate(m)
+        if not loc:
+            unmapped += 1
+            continue
+        lat, lng, prec = loc
+        rows.append({
+            "lat": lat, "lng": lng, "precision": prec, "title": title,
+            "city": m.get("city", ""), "region": m.get("region", ""),
+            "cuisine": m.get("cuisine", "") or m.get("food_type", ""),
+            "accolades": m.get("accolades", ""), "price": m.get("price", ""),
+            "address": m.get("address", ""), "url": m.get("url", ""),
+            "source": m.get("source", ""), "image": m.get("image", ""),
+            "acc_tier": facets.accolade_tier(m),
+        })
+    return rows, unmapped
 
 
 # ── theme — pure black & white, food-GPT minimal (ChatGPT/Eatbook register) ──
@@ -271,6 +326,21 @@ with st.sidebar:
                             placeholder="e.g. laksa · dim sum · omakase · nasi lemak")
 
     st.divider()
+    st.subheader("🎖️ Filters")
+    acc_sel = st.selectbox("Accolade", facets.ACCOLADE_OPTS, index=0,
+                           help="MICHELIN tier, from the curated Accolades field.")
+    price_sel = st.selectbox("Price (per pax)", facets.PRICE_OPTS, index=0,
+                             help="Normalised from each place's price guide.")
+    _ft_opts = ["All"] + facet_options(stats["total"])
+    ft_sel = st.selectbox("Food type", _ft_opts, index=0,
+                          help="The curated food-type taxonomy from the Eat List.")
+    if acc_sel != "Any" or price_sel != "Any" or ft_sel != "All":
+        st.caption(f"Filtering by "
+                   + " · ".join(x for x in (acc_sel if acc_sel != "Any" else "",
+                                            price_sel if price_sel != "Any" else "",
+                                            ft_sel if ft_sel != "All" else "") if x))
+
+    st.divider()
     st.subheader("📍 Near me")
     near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
                              placeholder="3.1390, 101.6869")
@@ -286,9 +356,9 @@ with st.sidebar:
     else:
         st.caption("💡 No API key — ranked snippets")
 
-chat_tab, home_tab, find_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
-    ["💬  Ask", "🍽️  Discover", "🔎  Find", "❤️  My list", "✍️  Contribute",
-     "➕  Add a place"])
+chat_tab, home_tab, find_tab, map_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
+    ["💬  Ask", "🍽️  Discover", "🔎  Find", "🗺️  Map", "❤️  My list",
+     "✍️  Contribute", "➕  Add a place"])
 
 
 # ── shared card renderer (thumbnail + body + Save) ───────────────────────────
@@ -305,6 +375,17 @@ def card_from_hit(h):
             "city": m.get("city", ""), "image": m.get("image", ""),
             "text": h["doc"], "dist": h.get("distance_km"),
             "ts": parse_pub(m.get("date", ""))}
+
+
+def facets_active() -> bool:
+    return acc_sel != "Any" or price_sel != "Any" or ft_sel != "All"
+
+
+def apply_facets(hits):
+    """Keep only hits whose metadata satisfies the active sidebar facets."""
+    if not facets_active():
+        return hits
+    return [h for h in hits if facets.passes(h["meta"], acc_sel, price_sel, ft_sel)]
 
 
 def render_card(a, key):
@@ -479,8 +560,10 @@ with chat_tab:
         with st.chat_message("assistant", avatar="🍜"):
             reg = None if region == "All" else region
             with st.spinner("Searching the corpus…"):
-                hits = query.retrieve(prompt, k=8, region=reg, contains=[area, cuisine],
+                hits = query.retrieve(prompt, k=24 if facets_active() else 8,
+                                      region=reg, contains=[area, cuisine],
                                       embedder=_embedder(), coll=coll)
+                hits = apply_facets(hits)[:8]
             if not hits:
                 ans = ("I couldn't find anything matching in the corpus for that. "
                        "Try widening the region/cuisine filters in the sidebar, or add "
@@ -542,9 +625,11 @@ with find_tab:
             except ValueError:
                 st.warning('“Near me” must look like `3.1390, 101.6869` — ignoring it.')
         with st.spinner("Searching…"):
-            hits = query.retrieve(q, k=k, region=reg, contains=[area, cuisine],
-                                  embedder=_embedder(), coll=coll,
-                                  near=near, radius_km=radius_km if near else None)
+            hits = query.retrieve(q, k=k * 4 if facets_active() else k, region=reg,
+                                  contains=[area, cuisine], embedder=_embedder(),
+                                  coll=coll, near=near,
+                                  radius_km=radius_km if near else None)
+            hits = apply_facets(hits)[:k]
         if near and not hits:
             st.info("No geo-tagged places within that radius. Widen the radius, or "
                     "run `enrich_geo.py` to add coordinates.", icon="📍")
@@ -576,6 +661,88 @@ with find_tab:
                     lines.append(f"- [{h['meta'].get('source','')}]({u})")
             with st.expander("Sources (de-duplicated)"):
                 st.markdown("\n".join(lines))
+
+
+# ── tab: Map (whole corpus on a map, filtered by sidebar) ────────────────────
+def _rgb(hex_):
+    hex_ = hex_.lstrip("#")
+    return [int(hex_[i:i + 2], 16) for i in (0, 2, 4)]
+
+
+with map_tab:
+    st.markdown("<div class='sechead'>🗺️ The list, on a map</div>",
+                unsafe_allow_html=True)
+    rows, unmapped = map_points(stats["total"], region, area, cuisine,
+                                acc_sel, price_sel, ft_sel)
+    n_mich = sum(1 for r in rows if r["acc_tier"] in facets._MICHELIN)
+    st.markdown(
+        f"<div class='kpi'>📍 {len(rows)} places mapped · ⭐ {n_mich} MICHELIN · "
+        f"{unmapped} without a locatable area · pins are snapped to their "
+        f"<b>district</b> (approximate), not exact addresses.</div>",
+        unsafe_allow_html=True)
+
+    if not rows:
+        st.info("No places match the current filters. Loosen the region / facets "
+                "in the sidebar.", icon="🗺️")
+    else:
+        try:
+            import pandas as pd
+            import pydeck as pdk
+            ink = _rgb(PAL["ink"])
+            for r in rows:
+                mich = r["acc_tier"] in facets._MICHELIN
+                r["radius"] = 130 if mich else 70
+                r["color"] = ink + [235 if mich else 150]
+                r["dish"] = r["cuisine"] or "—"
+                r["acc_txt"] = r["accolades"] or ("" if not mich else r["acc_tier"])
+            df = pd.DataFrame(rows)
+            centers = {"MY": (3.14, 101.69, 9.2), "SG": (1.30, 103.84, 11),
+                       "TH": (13.75, 100.52, 10.5)}
+            if region in centers:
+                lat0, lng0, zoom = centers[region]
+            else:
+                lat0 = sum(r["lat"] for r in rows) / len(rows)
+                lng0 = sum(r["lng"] for r in rows) / len(rows)
+                zoom = 5.2
+            basemap = ("https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+                       if mode == "Dark" else
+                       "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
+            layer = pdk.Layer(
+                "ScatterplotLayer", data=df, get_position="[lng, lat]",
+                get_radius="radius", radius_min_pixels=4, radius_max_pixels=26,
+                get_fill_color="color", get_line_color=[255, 255, 255],
+                line_width_min_pixels=1, stroked=True, pickable=True)
+            tooltip = {
+                "html": "<b>{title}</b><br/>{dish}<br/>📍 {city} "
+                        "<i>({precision})</i><br/>{acc_txt}",
+                "style": {"backgroundColor": PAL["panel"], "color": PAL["ink"],
+                          "border": f"1px solid {PAL['border']}",
+                          "borderRadius": "10px", "fontSize": "12px",
+                          "fontFamily": "Inter, sans-serif", "padding": "8px 10px"}}
+            st.pydeck_chart(pdk.Deck(
+                layers=[layer], map_style=basemap,
+                initial_view_state=pdk.ViewState(
+                    latitude=lat0, longitude=lng0, zoom=zoom, pitch=0),
+                tooltip=tooltip), use_container_width=True)
+            st.caption("Larger pins = MICHELIN listings. Hover a pin for details. "
+                       "Districts are placed offline from a local gazetteer — no "
+                       "geocoding API is called.")
+        except Exception as e:      # pragma: no cover — pydeck/tiles unavailable
+            st.warning(f"Interactive map unavailable ({type(e).__name__}); showing a "
+                       "basic pin map.", icon="🗺️")
+            import pandas as pd
+            st.map(pd.DataFrame([{"lat": r["lat"], "lon": r["lng"]} for r in rows]))
+
+        # a compact list under the map (Michelin first, then by name)
+        with st.expander(f"📋 List these {len(rows)} places", expanded=False):
+            for r in sorted(rows, key=lambda x: (x["acc_tier"] not in facets._MICHELIN,
+                                                 x["title"].lower()))[:120]:
+                star = "⭐ " if r["acc_tier"] in facets._MICHELIN else ""
+                link = (f"[{r['title']}]({r['url']})"
+                        if str(r["url"]).startswith("http") else r["title"])
+                acc = f" · _{r['acc_tier']}_" if r["acc_tier"] else ""
+                st.markdown(f"- {star}**{link}** — {r['dish'] if 'dish' in r else r['cuisine']}"
+                            f" · {r['city'] or r['region']}{acc}")
 
 
 # ── tab: My list (memory of your reviews) ────────────────────────────────────
