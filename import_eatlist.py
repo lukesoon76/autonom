@@ -13,10 +13,18 @@ import argparse
 import hashlib
 import os
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
 import openpyxl
 
 import ingest
+
+
+def maps_link(name, address, city) -> str:
+    """A Google Maps *search* deep link (not scraping — just a URL the user can
+    click for directions/contact). Built from the curated name + address."""
+    q = ", ".join(p for p in (name, address, city) if p and p != "-")
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(q)}" if q else ""
 
 DEFAULT_WB = os.path.expanduser("~/eatlist/Asia_Eateries_Master_List.xlsx")
 COUNTRY_REGION = {"singapore": "SG", "malaysia": "MY", "thailand": "TH"}
@@ -49,6 +57,7 @@ def read_rows(wb_path):
             "cuisine": g(r, "Cuisine / Style") or g(r, "Food Type Category"),
             "food_type": g(r, "Food Type Category"),
             "address": g(r, "Address"),
+            "phone": g(r, "Phone"),
             "accolades": g(r, "Accolades"),
             "order": g(r, "What To Order / Signature"),
             "rating": g(r, "Google Rating"),
@@ -120,6 +129,8 @@ def run(wb_path, batch=256):
             "price": r["price"],
             "hours": r["hours"],
             "address": r["address"],
+            "phone": r["phone"],
+            "maps": maps_link(r["name"], r["address"], r["city"] or r["area"]),
             "order": r["order"],
             "tier": r["tier"],
             "rating": _rating(r["rating"]),

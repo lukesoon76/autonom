@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-ChiefEpicure — Streamlit UI for the FoodRAG "where to eat" system.
+ChiefEpicure — Streamlit UI for the FoodRAG "where to eat"system.
 
     streamlit run app.py
 
 A friendly front-end over the same local pipeline used by the CLI:
-  • Find food  — semantic search over ingested MY/SG reviews, with a cited
+  • Find food — semantic search over ingested MY/SG reviews, with a cited
                  Claude answer (when ANTHROPIC_API_KEY is set) or ranked
                  snippet cards otherwise. Every result links to its source.
   • Add a source — paste any website / article / feed / sitemap URL and ingest
@@ -34,15 +34,16 @@ import geo_gazetteer
 import ingest
 import personal
 import query
+import recommender
 import util
 from util import ago, parse_pub
 
-st.set_page_config(page_title="ChiefEpicure", page_icon="🍜", layout="wide")
+st.set_page_config(page_title="ChiefEpicure", page_icon="", layout="wide")
 
-REGION_LABEL = {"MY": "🇲🇾 Malaysia", "SG": "🇸🇬 Singapore", "TH": "🇹🇭 Thailand",
-                "ID": "🇮🇩 Indonesia", "PH": "🇵🇭 Philippines", "VN": "🇻🇳 Vietnam",
-                "KH": "🇰🇭 Cambodia", "LA": "🇱🇦 Laos", "MM": "🇲🇲 Myanmar",
-                "BN": "🇧🇳 Brunei", "ASEAN": "🌏 ASEAN", "MY_SG": "🌏 MY & SG", "": "—"}
+REGION_LABEL = {"MY": "Malaysia", "SG": "Singapore", "TH": "Thailand",
+                "ID": "Indonesia", "PH": "Philippines", "VN": "Vietnam",
+                "KH": "Cambodia", "LA": "Laos", "MM": "Myanmar",
+                "BN": "Brunei", "ASEAN": "ASEAN", "MY_SG": "MY & SG", "": "—"}
 EXAMPLES = [
     "good char kway teow in KL",
     "chilli crab tonight",
@@ -97,7 +98,7 @@ def facet_options(count: int):
 
 @st.cache_data(show_spinner="Placing pins…")
 def map_points(count: int, region, area, cuisine, acc, price, ft):
-    """Whole-corpus → mappable rows, deduped by (title, city) and filtered by
+    """Whole-corpus mappable rows, deduped by (title, city) and filtered by
     the sidebar region/area/cuisine + facets. Each row is snapped to an area
     centroid via the offline gazetteer. Returns (rows, n_unmapped)."""
     got = _collection().get(include=["metadatas", "documents"])
@@ -105,7 +106,7 @@ def map_points(count: int, region, area, cuisine, acc, price, ft):
     terms = [t.strip().lower() for t in (area, cuisine) if t and t.strip()]
     rows, seen, unmapped = [], set(), 0
     for m, d in zip(metas, docs):
-        if region and region != "All" and m.get("region") != region:
+        if region and region != "All"and m.get("region") != region:
             continue
         if not facets.passes(m, acc, price, ft):
             continue
@@ -132,6 +133,7 @@ def map_points(count: int, region, area, cuisine, acc, price, ft):
             "cuisine": m.get("cuisine", "") or m.get("food_type", ""),
             "accolades": m.get("accolades", ""), "price": m.get("price", ""),
             "address": m.get("address", ""), "url": m.get("url", ""),
+            "phone": m.get("phone", ""), "hours": m.get("hours", ""),
             "source": m.get("source", ""), "image": m.get("image", ""),
             "acc_tier": facets.accolade_tier(m),
         })
@@ -156,14 +158,13 @@ THEME = {
 }
 
 
-def build_css(p: dict) -> str:
+def build_css(p: dict) ->str:
     return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-/* pure black & white, food-GPT minimal — Inter throughout */
+/* pure black & white, minimal — Arial throughout, no icons */
 html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button,
 h1, h2, h3, h4, .brand, .sechead {{
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
 }}
 
 /* surfaces (drive the light/dark flip) */
@@ -172,7 +173,7 @@ h1, h2, h3, h4, .brand, .sechead {{
 .stApp, .stMarkdown, p, span, label, li, .stRadio, .stSlider, h1, h2, h3, h4 {{ color: {p['ink']}; }}
 [data-testid="stSidebar"] * {{ color: {p['ink']}; }}
 .stTextInput input, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
-[data-baseweb="select"] > div, [data-testid="stChatInput"] textarea {{
+[data-baseweb="select"] >div, [data-testid="stChatInput"] textarea {{
     background: {p['panel']} !important; color: {p['ink']} !important;
     border-color: {p['border']} !important; border-radius: 12px !important; }}
 [data-testid="stChatInput"] {{ border:1px solid {p['border']}; border-radius:14px;
@@ -225,6 +226,8 @@ h1, h2, h3, h4, .brand, .sechead {{
     border-radius:16px; background:{p['card']};}}
 [data-testid="stChatMessage"]{{background:{p['card']}; border:1px solid {p['border']};
     border-radius:14px;}}
+[data-testid*="Avatar"], [data-testid*="chatAvatarIcon"] {{ display:none !important; }}
+[data-testid="stChatMessage"] {{ gap:0 !important; }}
 .sechead{{font-weight:800; letter-spacing:-0.02em; font-size:1.35rem; color:{p['ink']};
          margin:1.1rem 0 .5rem;}}
 .kpi{{color:{p['muted']}; font-size:.85rem; margin-bottom:.6rem;}}
@@ -233,6 +236,16 @@ h1, h2, h3, h4, .brand, .sechead {{
 .hero-h{{font-weight:800; font-size:1.9rem; letter-spacing:-0.03em; color:{p['ink']};
         text-align:center; margin:1.4rem 0 .3rem;}}
 .hero-s{{color:{p['muted']}; text-align:center; margin-bottom:1.1rem;}}
+/* location + contact block on cards */
+.contact{{font-size:.8rem; color:{p['muted']}; line-height:1.55; margin-top:6px;}}
+.contact a{{color:{p['ink']}; text-decoration:none; border-bottom:1px solid {p['border']};}}
+/* EatWhatGPT recommendation cards */
+.rec{{border:1px solid {p['border']}; border-radius:14px; padding:12px 15px;
+     margin:9px 0; background:{p['card']};}}
+.rec-h{{font-weight:700; font-size:1.06rem; letter-spacing:-0.01em; color:{p['ink']};}}
+.rec-h .rank{{color:{p['muted']}; font-weight:800; margin-right:6px;}}
+.chips{{margin:5px 0 2px;}}
+.rec-intro{{color:{p['ink']}; margin:2px 0 8px; line-height:1.6;}}
 </style>
 """
 
@@ -241,12 +254,12 @@ def render_account():
     """Sidebar account box — sign in / register, or show the signed-in member."""
     user = st.session_state.get("user")
     if user:
-        st.markdown(f"**👤 {auth.display_name(user)}**")
+        st.markdown(f"** {auth.display_name(user)}**")
         if st.button("Sign out", use_container_width=True):
             st.session_state.user = None
             st.rerun()
         return
-    with st.expander("👤 Sign in / Register", expanded=False):
+    with st.expander("Sign in / Register", expanded=False):
         tab_in, tab_up = st.tabs(["Sign in", "Register"])
         with tab_in:
             u = st.text_input("Username", key="li_u")
@@ -272,17 +285,17 @@ def render_account():
         st.caption("Local prototype accounts (hashed). Not for public deployment.")
 
 
-if "user" not in st.session_state:
+if "user"not in st.session_state:
     st.session_state.user = None
 
 with st.sidebar:
     render_account()
     st.divider()
     mode = st.radio("Appearance", ["Light", "Dark"], horizontal=True, key="theme",
-                    format_func=lambda m: "☀️ Light" if m == "Light" else "🌙 Dark")
+                    format_func=lambda m: "Light"if m == "Light"else "Dark")
 PAL = THEME[mode]
 st.markdown(build_css(PAL), unsafe_allow_html=True)
-personal.use(st.session_state.user)      # scope saved places / reviews to the member
+personal.use(st.session_state.user) # scope saved places / reviews to the member
 USER = st.session_state.user
 DISPLAY = auth.display_name(USER) if USER else "guest"
 
@@ -305,28 +318,28 @@ NOW = dt.datetime.now(dt.timezone.utc)
 
 with st.sidebar:
     st.divider()
-    st.subheader("🏙️ Location")
+    st.subheader("Location")
     # region options are whatever's actually in the corpus (grows with ASEAN)
     _present = [r for r, _ in stats["regions"].most_common() if r]
     _reg_opts = ["All"] + sorted(_present) if _present else ["All", "MY", "SG"]
     region = st.selectbox("Country / region", _reg_opts,
                           index=_reg_opts.index(PREFS["region"])
                           if PREFS.get("region") in _reg_opts else 0,
-                          format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "🌏 All")
+                          format_func=lambda r: REGION_LABEL.get(r, r) if r != "All"else "All")
     area = st.text_input("State / city / district", value=PREFS.get("city", ""),
                          placeholder="e.g. Penang · Bangsar · Ipoh · Thonglor")
-    if st.button("📌 Save as my home", use_container_width=True):
+    if st.button("Save as my home", use_container_width=True):
         personal.set_prefs(region=region, city=area.strip())
-        st.toast(f"Home set to {area.strip() or region}", icon="🏙️")
+        st.toast(f"Home set to {area.strip() or region}")
         st.rerun()
 
     st.divider()
-    st.subheader("🍜 Cuisine / dish")
+    st.subheader("Cuisine / dish")
     cuisine = st.text_input("Cuisine or dish", label_visibility="collapsed",
                             placeholder="e.g. laksa · dim sum · omakase · nasi lemak")
 
     st.divider()
-    st.subheader("🎖️ Filters")
+    st.subheader("Filters")
     acc_sel = st.selectbox("Accolade", facets.ACCOLADE_OPTS, index=0,
                            help="MICHELIN tier, from the curated Accolades field.")
     price_sel = st.selectbox("Price (per pax)", facets.PRICE_OPTS, index=0,
@@ -334,38 +347,77 @@ with st.sidebar:
     _ft_opts = ["All"] + facet_options(stats["total"])
     ft_sel = st.selectbox("Food type", _ft_opts, index=0,
                           help="The curated food-type taxonomy from the Eat List.")
-    if acc_sel != "Any" or price_sel != "Any" or ft_sel != "All":
+    if acc_sel != "Any"or price_sel != "Any"or ft_sel != "All":
         st.caption(f"Filtering by "
-                   + " · ".join(x for x in (acc_sel if acc_sel != "Any" else "",
-                                            price_sel if price_sel != "Any" else "",
-                                            ft_sel if ft_sel != "All" else "") if x))
+                   + " · ".join(x for x in (acc_sel if acc_sel != "Any"else "",
+                                            price_sel if price_sel != "Any"else "",
+                                            ft_sel if ft_sel != "All"else "") if x))
 
     st.divider()
-    st.subheader("📍 Near me")
+    st.subheader("Near me")
     near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
                              placeholder="3.1390, 101.6869")
     radius_km = st.slider("Radius (km)", 1, 50, 10)
-    if st.button("📌 Save my location", use_container_width=True):
+    if st.button("Save my location", use_container_width=True):
         personal.set_prefs(latlng=near_str.strip())
-        st.toast("Location saved", icon="📍")
+        st.toast("Location saved")
 
     st.divider()
     k = st.slider("Results", 3, 12, 6)
     if query.has_api_key():
-        st.caption("✅ Claude answers on")
+        st.caption("Claude answers on")
     else:
-        st.caption("💡 No API key — ranked snippets")
+        st.caption("No API key — ranked snippets")
 
 chat_tab, home_tab, find_tab, map_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
-    ["💬  Ask", "🍽️  Discover", "🔎  Find", "🗺️  Map", "❤️  My list",
-     "✍️  Contribute", "➕  Add a place"])
+    ["Ask", "Discover", "Find", "Map", "My list",
+     "Contribute", "Add a place"])
 
 
 # ── shared card renderer (thumbnail + body + Save) ───────────────────────────
 def _thumb(img):
-    tag = (f"<img class='thumb' src='{img}' loading='lazy' "
+    tag = (f"<img class='thumb' src='{img}' loading='lazy'"
            f"onerror=\"this.style.display='none'\"/>") if img else ""
-    return f"<div class='thumb-wrap'><div class='thumb-ph'>🍽️</div>{tag}</div>"
+    return f"<div class='thumb-wrap'><div class='thumb-ph'></div>{tag}</div>"
+
+
+def contact_html(a) ->str:
+    """Location + address + contact block, from whatever fields are present."""
+    rows = []
+    if a.get("address"):
+        rows.append(a["address"])
+    line2 = []
+    if a.get("phone"):
+        line2.append(f"Tel {a['phone']}")
+    if a.get("hours"):
+        line2.append(f"Hours {a['hours']}")
+    if line2:
+        rows.append(" · ".join(line2))
+    links = []
+    if a.get("maps"):
+        links.append(f"<a href='{a['maps']}' target='_blank'>Directions</a>")
+    if a.get("url", "").startswith("http") and "instagram"in a.get("url", ""):
+        links.append(f"<a href='{a['url']}' target='_blank'>Instagram</a>")
+    if not rows and not links:
+        return ""
+    body = "<br/>".join(rows)
+    if links:
+        body += ("<br/>"if body else "") + " · ".join(links)
+    return f"<div class='contact'>{body}</div>"
+
+
+def rec_html(hit, rank_no) ->str:
+    """A styled EatWhatGPT recommendation card: title · reason chips · contact."""
+    m = hit["meta"]
+    title = m.get("title", "") or "—"
+    maps = m.get("maps", "")
+    tlink = (f"<a href='{maps}' target='_blank' style='color:inherit;"
+             f"text-decoration:none'>{title}</a>") if maps else title
+    chips = "".join(f"<span class='badge'>{r}</span>"for r in hit.get("reasons", []))
+    snip = (hit.get("doc", "") or "")[:170]
+    return (f"<div class='rec'><div class='rec-h'><span class='rank'>{rank_no}.</span>"
+            f"{tlink}</div><div class='chips'>{chips}</div>"
+            f"{contact_html(m)}<div class='snippet'>{snip}…</div></div>")
 
 
 def card_from_hit(h):
@@ -374,11 +426,16 @@ def card_from_hit(h):
             "source": m.get("source", ""), "region": m.get("region", ""),
             "city": m.get("city", ""), "image": m.get("image", ""),
             "text": h["doc"], "dist": h.get("distance_km"),
-            "ts": parse_pub(m.get("date", ""))}
+            "ts": parse_pub(m.get("date", "")),
+            "address": m.get("address", ""), "phone": m.get("phone", ""),
+            "hours": m.get("hours", ""), "maps": m.get("maps", ""),
+            "price": m.get("price", ""), "accolades": m.get("accolades", ""),
+            "rating": m.get("rating", 0), "order": m.get("order", ""),
+            "cuisine": m.get("cuisine", "")}
 
 
-def facets_active() -> bool:
-    return acc_sel != "Any" or price_sel != "Any" or ft_sel != "All"
+def facets_active() ->bool:
+    return acc_sel != "Any"or price_sel != "Any"or ft_sel != "All"
 
 
 def apply_facets(hits):
@@ -397,22 +454,24 @@ def render_card(a, key):
         c1.markdown(_thumb(a.get("image", "")), unsafe_allow_html=True)
         bits = []
         if a.get("dist") is not None:
-            bits.append(f"<span class='badge badge-geo'>📍 {a['dist']:.1f} km</span>")
+            bits.append(f"<span class='badge badge-geo'>{a['dist']:.1f} km</span>")
         if a.get("ts"):
-            bits.append(f"<span class='badge'>🕘 {ago(a['ts'])}</span>")
+            bits.append(f"<span class='badge'>{ago(a['ts'])}</span>")
         reg = a.get("region", "")
         bits.append(f"<span class='badge badge-reg'>{REGION_LABEL.get(reg, reg) or '—'}</span>")
         if a.get("city"):
             bits.append(f"<span class='badge'>{a['city']}</span>")
         bits.append(f"<span class='badge'>{a.get('source','')}</span>")
         text = (a.get("text", "") or "")[:260]
+        src_line = (f"<div class=' src'><a href='{url}' target='_blank'>{url}</a></div>"
+                    if str(url).startswith("http") else "")
         c2.markdown(
-            f"<div class='body'><h4><a href='{url}' target='_blank' "
+            f"<div class='body'><h4><a href='{url}' target='_blank'"
             f"style='color:inherit;text-decoration:none'>{a.get('title','')}</a></h4>"
             f"{''.join(bits)}<div class='snippet'>{text}…</div>"
-            f"<div class='src'>🔗 <a href='{url}' target='_blank'>{url}</a></div></div>",
+            f"{contact_html(a)}{src_line}</div>",
             unsafe_allow_html=True)
-        if c3.button("✅ Saved" if saved else "🔖 Save", key=f"sv_{key}",
+        if c3.button("Saved"if saved else "Save", key=f"sv_{key}",
                      use_container_width=True):
             if saved:
                 personal.remove_place(url)
@@ -426,7 +485,7 @@ def render_card(a, key):
 
 # ── tab: Today (aggregate what's new & good) ─────────────────────────────────
 with home_tab:
-    reg = None if region == "All" else region
+    reg = None if region == "All"else region
     terms = [t.strip().lower() for t in (area, cuisine) if t and t.strip()]
     arts = load_articles(stats["total"])
     if reg:
@@ -442,22 +501,22 @@ with home_tab:
     fresh_wk = sum(1 for a in arts if a["ts"] and (NOW - a["ts"]).days < 7)
     st.markdown(f"<div class='sechead'>What's new &amp; good in "
                 f"{where}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='kpi'>🆕 {fresh_wk} fresh this week · "
-                f"📚 {len(arts)} places · updated daily</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='kpi'>{fresh_wk} fresh this week · "
+                f"{len(arts)} places · updated daily</div>", unsafe_allow_html=True)
 
     # quick actions: Surprise me + today's digest
     ac1, ac2, _ = st.columns([1.1, 1.3, 3])
-    if ac1.button("🎲 Surprise me", use_container_width=True) and arts:
+    if ac1.button("Surprise me", use_container_width=True) and arts:
         # bias toward "good": authority or priority-1/2, prefer with a photo
-        pool = [a for a in arts if a["source"] == "Authority" or a["priority"] <= 2] or arts
+        pool = [a for a in arts if a["source"] == "Authority"or a["priority"] <= 2] or arts
         withimg = [a for a in pool if a.get("image")]
         st.session_state.surprise = random.choice(withimg or pool)["url"]
-    show_digest = ac2.toggle("📬 Today's digest", value=False)
+    show_digest = ac2.toggle("Today's digest", value=False)
 
     if st.session_state.get("surprise"):
         pick = next((a for a in arts if a["url"] == st.session_state.surprise), None)
         if pick:
-            st.markdown("<div class='sechead'>🎲 Tonight, try…</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sechead'>Tonight, try…</div>", unsafe_allow_html=True)
             render_card(pick, "surprise")
 
     if show_digest:
@@ -466,7 +525,7 @@ with home_tab:
                                              days=7, limit=10)
         with st.container(border=True):
             st.markdown(md)
-        st.download_button("⬇️ Download digest (.md)", md,
+        st.download_button("Download digest (.md)", md,
                            file_name=f"chiefepicure-{NOW:%Y-%m-%d}.md",
                            mime="text/markdown")
         st.caption("Written daily to `digests/` by the scheduled job; add SMTP env "
@@ -476,34 +535,34 @@ with home_tab:
         st.info("Nothing here yet for this city. Widen the filter, or add a feed "
                 "under **Add a source**.")
     else:
-        # ⭐ Featured ChiefEpicures — top contributors + their recent posts
+        # Featured ChiefEpicures — top contributors + their recent posts
         feat = community.featured_contributors(arts, top=6)
         if feat:
-            st.markdown("<div class='sechead'>⭐ Featured ChiefEpicures</div>",
+            st.markdown("<div class='sechead'>Featured ChiefEpicures</div>",
                         unsafe_allow_html=True)
             fcols = st.columns(2)
             for i, c in enumerate(feat):
                 with fcols[i % 2].container(border=True):
-                    tag = "👤 member" if c["member"] else "creator"
+                    tag = "member"if c["member"] else "creator"
                     st.markdown(f"**{c['name']}** · {c['count']} entries · {tag}")
                     for p in c["posts"]:
-                        st.markdown(f"<div style='font-size:.82rem'>↳ "
-                                    f"<a href='{p['url']}' target='_blank' "
-                                    f"style='color:{PAL['ink']}'>{p['title'][:70]}</a> "
+                        st.markdown(f"<div style='font-size:.82rem'>"
+                                    f"<a href='{p['url']}' target='_blank'"
+                                    f"style='color:{PAL['ink']}'>{p['title'][:70]}</a>"
                                     f"<span style='color:{PAL['muted']}'>· {ago(p['ts'])}"
                                     f"</span></div>", unsafe_allow_html=True)
 
         auth_picks = [a for a in arts if a["source"] == "Authority"][:6]
         if auth_picks:
-            st.markdown("<div class='sechead'>⭐ Michelin &amp; authority picks</div>",
+            st.markdown("<div class='sechead'>Michelin &amp; authority picks</div>",
                         unsafe_allow_html=True)
             for j, a in enumerate(auth_picks):
                 render_card(a, f"auth_{j}")
 
-        st.markdown("<div class='sechead'>🍜 Fresh finds</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sechead'>Fresh finds</div>", unsafe_allow_html=True)
         dated = [a for a in arts if a["ts"] and a["source"] != "Authority"]
         undated = [a for a in arts if not a["ts"] and a["source"] != "Authority"]
-        buckets = [("🆕 This week", 0, 7), ("This month", 7, 30), ("Earlier", 30, 10 ** 9)]
+        buckets = [("This week", 0, 7), ("This month", 7, 30), ("Earlier", 30, 10 ** 9)]
         shown, LIMIT = 0, 24
         for label, lo, hi in buckets:
             grp = [a for a in dated if lo <= (NOW - a["ts"]).days < hi][:LIMIT - shown]
@@ -515,24 +574,40 @@ with home_tab:
             shown += len(grp)
             if shown >= LIMIT:
                 break
-        if shown == 0 and undated:          # no parseable dates → just show some
+        if shown == 0 and undated: # no parseable dates just show some
             for j, a in enumerate(undated[:LIMIT]):
                 render_card(a, f"undated_{j}")
 
 
-# ── tab: Ask (food-GPT chatbot) ──────────────────────────────────────────────
+# ── tab: EatWhatGPT (conversational recommender) ─────────────────────────────
+REC_SYSTEM = ("You are EatWhatGPT, a decisive local food concierge for Malaysia "
+              "and Singapore. Using ONLY the numbered places provided (already "
+              "ranked for the user), write 2-3 warm sentences that recommend the "
+              "top one or two and say why — dish, accolade, vibe or value. Don't "
+              "list every place (cards below do that) and never invent one.")
+
+
+def _near_latlng():
+    """Parse the sidebar 'Near me'box to (lat, lng), or None."""
+    if not near_str.strip():
+        return None
+    try:
+        la, ln = near_str.split(",")
+        return (float(la), float(ln))
+    except ValueError:
+        return None
+
+
 with chat_tab:
-    if "chat" not in st.session_state:
-        st.session_state.chat = []
+    st.session_state.setdefault("chat", [])
 
     if not st.session_state.chat:
-        st.markdown("<div class='hero-h'>What are you craving?</div>",
-                    unsafe_allow_html=True)
-        st.markdown("<div class='hero-s'>Ask for a dish, an area, a vibe — answers come "
-                    "from a curated list of real places, with sources.</div>",
-                    unsafe_allow_html=True)
+        st.markdown("<div class='hero-h'>EatWhatGPT</div>", unsafe_allow_html=True)
+        st.markdown("<div class='hero-s'>Tell me a craving, an area or a budget — I'll "
+                    "rank real places and give you the reason, contact and directions "
+                    "for each.</div>", unsafe_allow_html=True)
         EXAMPLES = ["Best char kway teow in Penang", "Omakase under $250 in Singapore",
-                    "Supper spots in Bangsar", "Michelin Bib hawker in KL",
+                    "Supper near Bangsar, open now", "Michelin Bib hawker in KL",
                     "Nasi lemak worth driving for"]
         ecols = st.columns(len(EXAMPLES))
         for c, ex in zip(ecols, EXAMPLES):
@@ -541,68 +616,76 @@ with chat_tab:
                 st.rerun()
     else:
         _c1, _c2 = st.columns([6, 1])
-        if _c2.button("🗑️ Clear", key="chat_clear"):
+        if _c2.button("Clear", key="chat_clear"):
             st.session_state.chat = []
             st.rerun()
 
-    for m in st.session_state.chat:
-        with st.chat_message(m["role"], avatar="🍜" if m["role"] == "assistant" else "🙂"):
-            st.markdown(m["content"])
-            if m.get("sources"):
-                with st.expander("Sources"):
-                    st.markdown(m["sources"])
+    open_now_only = st.toggle("Open now only", value=False, key="open_now",
+                              help="Keep only places my best-effort hours parse says "
+                                   "are open right now (advisory).")
 
-    prompt = st.chat_input("Message ChiefEpicure…") or st.session_state.pop("pending_q", None)
+    for m in st.session_state.chat:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"], unsafe_allow_html=True)
+
+    prompt = (st.chat_input("Ask EatWhatGPT for a recommendation…")
+              or st.session_state.pop("pending_q", None))
     if prompt:
         st.session_state.chat.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="🙂"):
+        with st.chat_message("user"):
             st.markdown(prompt)
-        with st.chat_message("assistant", avatar="🍜"):
-            reg = None if region == "All" else region
-            with st.spinner("Searching the corpus…"):
-                hits = query.retrieve(prompt, k=24 if facets_active() else 8,
-                                      region=reg, contains=[area, cuisine],
+        with st.chat_message("assistant"):
+            reg = None if region == "All"else region
+            near = _near_latlng()
+            with st.spinner("Finding the best places…"):
+                hits = query.retrieve(prompt, k=48, region=reg,
+                                      contains=[area, cuisine],
                                       embedder=_embedder(), coll=coll)
-                hits = apply_facets(hits)[:8]
-            if not hits:
-                ans = ("I couldn't find anything matching in the corpus for that. "
-                       "Try widening the region/cuisine filters in the sidebar, or add "
-                       "more sources under **Add a source**.")
+                hits = apply_facets(hits)
+                # approximate proximity via the offline gazetteer (no geo in corpus)
+                if near:
+                    for h in hits:
+                        loc = geo_gazetteer.locate(h["meta"])
+                        if loc:
+                            h["distance_km"] = query.haversine_km(
+                                near[0], near[1], loc[0], loc[1])
+                if open_now_only:
+                    hits = [h for h in hits
+                            if recommender.open_state(h["meta"].get("hours", "")) == "open"]
+                recs = recommender.rank(hits, near=near, limit=6)
+            if not recs:
+                ans = ("I couldn't find a good match for that. Try widening the "
+                       "region/facets in the sidebar"+
+                       (", or turn off **Open now only**"if open_now_only else "") + ".")
                 st.markdown(ans)
                 st.session_state.chat.append({"role": "assistant", "content": ans})
             else:
-                context, _ = query.build_context(hits)
-                ans = None
+                intro = None
                 if query.has_api_key():
+                    ctx = "\n\n".join(
+                        f"[{i}] {h['meta'].get('title','')} — "
+                        f"{h['meta'].get('accolades') or h['meta'].get('cuisine','')} "
+                        f"in {h['meta'].get('city','')}. {h.get('doc','')[:200]}"
+                        for i, h in enumerate(recs, 1))
                     try:
-                        with st.spinner("Thinking…"):
-                            ans = query.answer(prompt, context)
+                        with st.spinner("Writing your recommendation…"):
+                            intro = query.answer(prompt, ctx, system=REC_SYSTEM)
                     except Exception as e:
-                        st.warning(f"Couldn't generate a written answer "
-                                   f"({type(e).__name__}). Showing top matches.", icon="⚠️")
-                if not ans:
-                    ans = ("Here are the closest matches I found:\n\n" + "\n".join(
-                        f"- **{h['meta'].get('title','')}** — {h['meta'].get('source','')}"
-                        for h in hits[:6]))
-                st.markdown(ans)
-                seen, lines = set(), []
-                for h in hits:
-                    m = h["meta"]
-                    key = m.get("url") or m.get("title", "")
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    t, u, s = m.get("title", ""), m.get("url", ""), m.get("source", "")
-                    lines.append(f"- {'['+t+']('+u+')' if u.startswith('http') else t} · _{s}_")
-                srcmd = "\n".join(lines[:8])
-                with st.expander("Sources"):
-                    st.markdown(srcmd)
-                st.session_state.chat.append({"role": "assistant", "content": ans,
-                                              "sources": srcmd})
+                        st.caption(f"(Live summary unavailable: {type(e).__name__})")
+                if not intro:
+                    where = area.strip() or (REGION_LABEL.get(reg, "") if reg else "")
+                    loc_txt = f" near {where}" if where else ""
+                    open_txt = " — open right now" if open_now_only else ""
+                    intro = (f"Here are my top picks{loc_txt}, ranked by relevance, "
+                             f"accolades and ratings{open_txt}:")
+                html = (f"<div class='rec-intro'>{intro}</div>"
+                        + "".join(rec_html(h, i) for i, h in enumerate(recs, 1)))
+                st.markdown(html, unsafe_allow_html=True)
+                st.session_state.chat.append({"role": "assistant", "content": html})
 
 
 with find_tab:
-    if "q" not in st.session_state:
+    if "q"not in st.session_state:
         st.session_state.q = ""
     st.write("**Try:**")
     cols = st.columns(len(EXAMPLES))
@@ -616,7 +699,7 @@ with find_tab:
     go = st.button("Find", type="primary")
 
     if go and q.strip():
-        reg = None if region == "All" else region
+        reg = None if region == "All"else region
         near = None
         if near_str.strip():
             try:
@@ -632,7 +715,7 @@ with find_tab:
             hits = apply_facets(hits)[:k]
         if near and not hits:
             st.info("No geo-tagged places within that radius. Widen the radius, or "
-                    "run `enrich_geo.py` to add coordinates.", icon="📍")
+                    "run `enrich_geo.py` to add coordinates.")
         if not hits:
             st.warning("No matches — try widening the filters or ingesting more sources.")
         else:
@@ -644,7 +727,7 @@ with find_tab:
                         reply = query.answer(q, context)
                 except Exception as e:
                     st.warning(f"Couldn't generate a written answer ({type(e).__name__}: "
-                               f"{e}). Showing ranked snippets instead.", icon="⚠️")
+                               f"{e}). Showing ranked snippets instead.")
                 if reply:
                     st.markdown("### Recommendation")
                     st.markdown(f"<div class='answer'>{reply}</div>", unsafe_allow_html=True)
@@ -670,20 +753,20 @@ def _rgb(hex_):
 
 
 with map_tab:
-    st.markdown("<div class='sechead'>🗺️ The list, on a map</div>",
+    st.markdown("<div class='sechead'>The list, on a map</div>",
                 unsafe_allow_html=True)
     rows, unmapped = map_points(stats["total"], region, area, cuisine,
                                 acc_sel, price_sel, ft_sel)
     n_mich = sum(1 for r in rows if r["acc_tier"] in facets._MICHELIN)
     st.markdown(
-        f"<div class='kpi'>📍 {len(rows)} places mapped · ⭐ {n_mich} MICHELIN · "
+        f"<div class='kpi'>{len(rows)} places mapped · {n_mich} MICHELIN · "
         f"{unmapped} without a locatable area · pins are snapped to their "
         f"<b>district</b> (approximate), not exact addresses.</div>",
         unsafe_allow_html=True)
 
     if not rows:
         st.info("No places match the current filters. Loosen the region / facets "
-                "in the sidebar.", icon="🗺️")
+                "in the sidebar.")
     else:
         try:
             import pandas as pd
@@ -694,7 +777,9 @@ with map_tab:
                 r["radius"] = 130 if mich else 70
                 r["color"] = ink + [235 if mich else 150]
                 r["dish"] = r["cuisine"] or "—"
-                r["acc_txt"] = r["accolades"] or ("" if not mich else r["acc_tier"])
+                r["acc_txt"] = r["accolades"] or (""if not mich else r["acc_tier"])
+                r["addr_txt"] = f"{r['address']}"if r.get("address") else ""
+                r["hrs_txt"] = f"{r['hours']}"if r.get("hours") else ""
             df = pd.DataFrame(rows)
             centers = {"MY": (3.14, 101.69, 9.2), "SG": (1.30, 103.84, 11),
                        "TH": (13.75, 100.52, 10.5)}
@@ -705,7 +790,7 @@ with map_tab:
                 lng0 = sum(r["lng"] for r in rows) / len(rows)
                 zoom = 5.2
             basemap = ("https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
-                       if mode == "Dark" else
+                       if mode == "Dark"else
                        "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
             layer = pdk.Layer(
                 "ScatterplotLayer", data=df, get_position="[lng, lat]",
@@ -713,12 +798,12 @@ with map_tab:
                 get_fill_color="color", get_line_color=[255, 255, 255],
                 line_width_min_pixels=1, stroked=True, pickable=True)
             tooltip = {
-                "html": "<b>{title}</b><br/>{dish}<br/>📍 {city} "
-                        "<i>({precision})</i><br/>{acc_txt}",
+                "html": "<b>{title}</b><br/>{dish} · {city} <i>({precision})</i>"
+                        "<br/>{acc_txt}<br/>{addr_txt}<br/>{hrs_txt}",
                 "style": {"backgroundColor": PAL["panel"], "color": PAL["ink"],
                           "border": f"1px solid {PAL['border']}",
                           "borderRadius": "10px", "fontSize": "12px",
-                          "fontFamily": "Inter, sans-serif", "padding": "8px 10px"}}
+                          "fontFamily": "Arial, sans-serif", "padding": "8px 10px"}}
             st.pydeck_chart(pdk.Deck(
                 layers=[layer], map_style=basemap,
                 initial_view_state=pdk.ViewState(
@@ -727,22 +812,22 @@ with map_tab:
             st.caption("Larger pins = MICHELIN listings. Hover a pin for details. "
                        "Districts are placed offline from a local gazetteer — no "
                        "geocoding API is called.")
-        except Exception as e:      # pragma: no cover — pydeck/tiles unavailable
+        except Exception as e: # pragma: no cover — pydeck/tiles unavailable
             st.warning(f"Interactive map unavailable ({type(e).__name__}); showing a "
-                       "basic pin map.", icon="🗺️")
+                       "basic pin map.")
             import pandas as pd
             st.map(pd.DataFrame([{"lat": r["lat"], "lon": r["lng"]} for r in rows]))
 
         # a compact list under the map (Michelin first, then by name)
-        with st.expander(f"📋 List these {len(rows)} places", expanded=False):
+        with st.expander(f"List these {len(rows)} places", expanded=False):
             for r in sorted(rows, key=lambda x: (x["acc_tier"] not in facets._MICHELIN,
                                                  x["title"].lower()))[:120]:
-                star = "⭐ " if r["acc_tier"] in facets._MICHELIN else ""
+                star = ""if r["acc_tier"] in facets._MICHELIN else ""
                 link = (f"[{r['title']}]({r['url']})"
                         if str(r["url"]).startswith("http") else r["title"])
-                acc = f" · _{r['acc_tier']}_" if r["acc_tier"] else ""
-                st.markdown(f"- {star}**{link}** — {r['dish'] if 'dish' in r else r['cuisine']}"
-                            f" · {r['city'] or r['region']}{acc}")
+                acc = f"· _{r['acc_tier']}_"if r["acc_tier"] else ""
+                st.markdown(f"- {star}**{link}** — {r['dish'] if 'dish'in r else r['cuisine']}"
+                            f"· {r['city'] or r['region']}{acc}")
 
 
 # ── tab: My list (memory of your reviews) ────────────────────────────────────
@@ -756,9 +841,10 @@ def render_saved(p, key):
     with st.container(border=True):
         c1, c2 = st.columns([1, 6], vertical_alignment="center")
         c1.markdown(_thumb(p.get("image", "")), unsafe_allow_html=True)
-        stars = "★" * int(p.get("rating", 0)) + "☆" * (5 - int(p.get("rating", 0)))
+        rr = int(p.get("rating", 0))
+        stars = f"{rr}/5"if rr else "unrated"
         c2.markdown(
-            f"<div class='body'><h4><a href='{url}' target='_blank' "
+            f"<div class='body'><h4><a href='{url}' target='_blank'"
             f"style='color:inherit;text-decoration:none'>{p.get('title','')}</a></h4>"
             f"<span class='badge badge-reg'>{REGION_LABEL.get(p.get('region',''), p.get('region','')) or '—'}</span>"
             f"<span class='badge'>{p.get('city','')}</span>"
@@ -767,11 +853,11 @@ def render_saved(p, key):
             unsafe_allow_html=True)
         e1, e2, e3 = st.columns([1.4, 1.6, 0.7], vertical_alignment="bottom")
         status = e1.radio("Status", ["want", "been"], horizontal=True,
-                          index=0 if p.get("status", "want") == "want" else 1,
-                          format_func=lambda s: "🍽️ Want to go" if s == "want" else "✅ Been",
+                          index=0 if p.get("status", "want") == "want"else 1,
+                          format_func=lambda s: "Want to go"if s == "want"else "Been",
                           key=f"stt_{key}")
         rating = e2.slider("My rating", 0, 5, int(p.get("rating", 0)), key=f"rt_{key}")
-        remove = e3.button("🗑️", key=f"rm_{key}", help="Remove from list")
+        remove = e3.button("", key=f"rm_{key}", help="Remove from list")
         note = st.text_input("My note", value=p.get("note", ""),
                              placeholder="what I had, what to order next time…",
                              key=f"nt_{key}")
@@ -786,65 +872,65 @@ def render_saved(p, key):
         if remove:
             personal.remove_place(url)
             st.rerun()
-        if changed and st.button("💾 Save review", key=f"sr_{key}", type="primary"):
+        if changed and st.button("Save review", key=f"sr_{key}", type="primary"):
             personal.upsert_place(url, status=status, rating=rating, note=note.strip())
-            st.toast("Saved your review", icon="💾")
+            st.toast("Saved your review")
             st.rerun()
 
 
 with mylist_tab:
     places = personal.load_places()
     if not places:
-        st.info("Your list is empty. Tap **🔖 Save** on any card in **Today** or "
-                "**Find food**, then come back to rate it and jot a note.", icon="❤️")
+        st.info("Your list is empty. Tap ** Save** on any card in **Today** or "
+                "**Find food**, then come back to rate it and jot a note.")
     else:
         want = [p for p in places if p.get("status", "want") == "want"]
         been = [p for p in places if p.get("status") == "been"]
-        st.markdown(f"<div class='kpi'>❤️ {len(places)} saved · ✅ {len(been)} been · "
-                    f"🍽️ {len(want)} want to go</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi'>{len(places)} saved · {len(been)} been · "
+                    f"{len(want)} want to go</div>", unsafe_allow_html=True)
 
         # ── collections (named lists) ────────────────────────────────────────
         by_url = {p["url"]: p for p in places}
         cols = personal.load_collections()
-        with st.expander(f"📚 Collections ({len(cols)})", expanded=bool(cols)):
+        with st.expander(f"Collections ({len(cols)})", expanded=bool(cols)):
             nc1, nc2 = st.columns([3, 1])
             new_name = nc1.text_input("New collection", key="new_col",
                                       placeholder="e.g. Date night, Cheap eats, Omakase",
                                       label_visibility="collapsed")
-            if nc2.button("➕ Create", use_container_width=True) and new_name.strip():
+            if nc2.button("Create", use_container_width=True) and new_name.strip():
                 personal.create_collection(new_name.strip())
                 st.rerun()
             for name, urls in cols.items():
-                titles = [f"[{by_url[u]['title']}]({u})" for u in urls if u in by_url]
+                titles = [f"[{by_url[u]['title']}]({u})"for u in urls if u in by_url]
                 cc1, cc2 = st.columns([5, 1])
                 cc1.markdown(f"**{name}** ({len(titles)}) — "
                              + (" · ".join(titles) if titles else "_empty_"))
-                if cc2.button("🗑️", key=f"delc_{name}", help=f"Delete '{name}'"):
+                if cc2.button("", key=f"delc_{name}", help=f"Delete '{name}'"):
                     personal.delete_collection(name)
                     st.rerun()
             if cols:
                 st.caption("Assign a place to collections from its card below.")
 
         if want:
-            st.markdown("<div class='sechead'>🍽️ Want to go</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sechead'>Want to go</div>", unsafe_allow_html=True)
             for i, p in enumerate(want):
                 render_saved(p, f"want_{i}")
         if been:
-            st.markdown("<div class='sechead'>✅ Been there</div>", unsafe_allow_html=True)
+            st.markdown("<div class='sechead'>Been there</div>", unsafe_allow_html=True)
             for i, p in enumerate(been):
                 render_saved(p, f"been_{i}")
 
         # ── recommended for you (from your memory) ───────────────────────────
-        st.markdown("<div class='sechead'>✨ Recommended for you</div>",
+        st.markdown("<div class='sechead'>Recommended for you</div>",
                     unsafe_allow_html=True)
         seed_titles = [p.get("title", "") for p in places if p.get("title")][:6]
         if not seed_titles:
             st.caption("Save a few places and I'll suggest similar ones.")
         else:
-            st.caption("Because you saved: " + ", ".join(t[:30] for t in seed_titles[:3])
-                       + ("…" if len(seed_titles) > 3 else ""))
+            st.caption("Because you saved: "+ ", ".join(t[:30] for t in seed_titles[:3])
+                       + ("…"if len(seed_titles) >3 else ""))
             with st.spinner("Finding places that match your taste…"):
-                recs = query.retrieve(" ; ".join(seed_titles), k=12,
+                recs = query.retrieve("; ".join(seed_titles), k=12,
                                       embedder=_embedder(), coll=coll)
             saved_now = personal.saved_urls()
             fresh = [h for h in recs if h["meta"].get("url") not in saved_now][:6]
@@ -856,11 +942,11 @@ with mylist_tab:
 
 # ── tab: Contribute (write a dining review with photos) ──────────────────────
 with contribute_tab:
-    st.markdown("<div class='sechead'>✍️ Share a dining experience</div>",
+    st.markdown("<div class='sechead'>Share a dining experience</div>",
                 unsafe_allow_html=True)
     if not USER:
-        st.info("Sign in (sidebar → 👤) to post your reviews as a **ChiefEpicure** "
-                "— they'll appear in Today, Find and Featured.", icon="🔐")
+        st.info("Sign in (sidebar) to post your reviews as a **ChiefEpicure** "
+                "— they'll appear in Today, Find and Featured.")
     else:
         st.caption(f"Posting as **{DISPLAY}**")
         with st.form("write_review", clear_on_submit=True):
@@ -877,7 +963,7 @@ with contribute_tab:
                                        type=["jpg", "jpeg", "png", "webp"],
                                        accept_multiple_files=True)
             rurl = st.text_input("Link (optional)", placeholder="menu / map / IG post")
-            posted = st.form_submit_button("📣 Post review", type="primary")
+            posted = st.form_submit_button("Post review", type="primary")
         if posted:
             if not rname.strip() or not rtext.strip():
                 st.warning("A place name and a few words are required.")
@@ -890,7 +976,7 @@ with contribute_tab:
                           "images": imgs, "ts": NOW.isoformat()}
                 review = personal.add_review(review)
                 community.embed_review(review, USER, DISPLAY, coll, _embedder())
-                st.success("📣 Posted! Your review is now live in Today, Find and "
+                st.success("Posted! Your review is now live in Today, Find and "
                            "Featured. Thanks for contributing.")
 
         # your own reviews
@@ -904,18 +990,18 @@ with contribute_tab:
                 if shots:
                     cimg.image(shots[0], use_container_width=True)
                 else:
-                    cimg.markdown("<div class='thumb-wrap'><div class='thumb-ph'>🍽️"
+                    cimg.markdown("<div class='thumb-wrap'><div class='thumb-ph'>"
                                   "</div></div>", unsafe_allow_html=True)
                 cbody.markdown(
-                    f"**{rv['name']}** · {'★' * int(rv.get('rating', 0))}  \n"
+                    f"**{rv['name']}** · {''* int(rv.get('rating', 0))} \n"
                     f"<span class='badge badge-reg'>{REGION_LABEL.get(rv.get('region',''), rv.get('region',''))}</span>"
                     f"<span class='badge'>{rv.get('city','')}</span>"
-                    f"<span class='badge'>{rv.get('cuisine','')}</span>  \n"
+                    f"<span class='badge'>{rv.get('cuisine','')}</span>\n"
                     f"<span class='snippet'>{rv.get('text','')[:240]}</span>",
                     unsafe_allow_html=True)
-                if len(shots) > 1:
+                if len(shots) >1:
                     cbody.image(shots[1:4], width=90)
-                if cbody.button("🗑️ Delete", key=f"delrv_{rv['id']}"):
+                if cbody.button("Delete", key=f"delrv_{rv['id']}"):
                     community.unembed_review(USER, rv["id"], coll)
                     personal.remove_review(rv["id"])
                     st.rerun()
@@ -929,7 +1015,7 @@ with add_tab:
              "never bypassed.")
 
     with st.form("add_source"):
-        url = st.text_input("URL", placeholder="https://example.com/feed/  or  a single article URL")
+        url = st.text_input("URL", placeholder="https://example.com/feed/ or a single article URL")
         c1, c2, c3 = st.columns(3)
         kind = c1.selectbox("Type", ["auto", "page", "rss", "sitemap"],
                             help="auto = sniff from the URL. page = one article. "
@@ -941,7 +1027,7 @@ with add_tab:
         url_filter = c5.text_input("Sitemap URL filter (optional)",
                                    placeholder="/restaurants/")
         limit = st.slider("Max articles (feeds/sitemaps)", 1, 30, 10)
-        save = st.checkbox("📌 Keep updated daily — add this feed to the scheduled "
+        save = st.checkbox("Keep updated daily — add this feed to the scheduled "
                            "refresh", value=True,
                            help="Saves it to config/user_sources.yaml, which the "
                                 "daily launchd/cron job re-ingests (priority 2).")
@@ -949,7 +1035,7 @@ with add_tab:
 
     if submitted and url.strip():
         u = url.strip()
-        src_label = label.strip() or (u.split("/")[2] if "://" in u else "User URL")
+        src_label = label.strip() or (u.split("/")[2] if "://"in u else "User URL")
         with st.spinner(f"Fetching politely (≥{ingest.REQUEST_DELAY}s/host)…"):
             out = ingest.ingest_user_source(
                 u, kind=kind, region=reg2, city=city2.strip(),
@@ -959,29 +1045,29 @@ with add_tab:
         n_ok = sum(1 for r in out["results"] if r["status"] == "ok")
         n_blocked = sum(1 for r in out["results"] if r["status"] == "blocked")
         if added:
-            st.success(f"Ingested **{n_ok}** article(s) → **{added}** chunks "
+            st.success(f"Ingested **{n_ok}** article(s) **{added}** chunks "
                        f"(resolved as `{out['kind']}`). Re-running is idempotent.")
         else:
             st.warning(f"No new content ingested (resolved as `{out['kind']}`).")
         if n_blocked:
-            st.info(f"{n_blocked} URL(s) skipped — disallowed by robots.txt.", icon="🤖")
+            st.info(f"{n_blocked} URL(s) skipped — disallowed by robots.txt.")
 
         if save:
             resolved = out["kind"]
             if resolved == "page":
                 st.info("Saved as a single **page** — the daily job will re-check "
                         "just this one URL. Add the site's **feed** or **sitemap** "
-                        "to keep pulling *new* posts.", icon="📌")
+                        "to keep pulling *new* posts.")
             entry = ingest.add_user_source(
                 src_label, u, type=resolved, region=reg2, city=city2.strip(),
                 priority=2, url_filter=url_filter.strip())
-            st.success(f"📌 Saved to the daily refresh as **{entry['name']}** "
+            st.success(f"Saved to the daily refresh as **{entry['name']}** "
                        f"(`{entry['type']}`, priority {entry['priority']}).")
 
         with st.expander("Per-URL detail"):
             for r in out["results"]:
-                icon = {"ok": "✅", "blocked": "🤖", "fetch_failed": "⚠️",
-                        "too_short": "📄", "no_url": "❔"}.get(r["status"], "•")
+                icon = {"ok": "", "blocked": "", "fetch_failed": "",
+                        "too_short": "", "no_url": ""}.get(r["status"], "•")
                 st.write(f"{icon} `{r['status']}` — {r.get('title') or r['url']} "
                          f"({r['chunks']} chunks)")
         st.caption("Switch to **Find food** — your new content is searchable now.")
@@ -989,7 +1075,7 @@ with add_tab:
     # currently-saved user feeds (part of the daily refresh)
     user_srcs = ingest.load_user_sources()
     st.divider()
-    st.markdown(f"**📌 Your saved feeds — refreshed daily ({len(user_srcs)})**")
+    st.markdown(f"** Your saved feeds — refreshed daily ({len(user_srcs)})**")
     if not user_srcs:
         st.caption("None yet. Add a feed or sitemap above and keep "
                    "“Keep updated daily” ticked.")
@@ -998,19 +1084,19 @@ with add_tab:
             st.markdown(
                 f"- **{s.get('name','')}** · `{s.get('type','')}` · "
                 f"{REGION_LABEL.get(s.get('region',''), s.get('region','') or '—')} · "
-                f"priority {s.get('priority','')}  \n"
-                f"  <span style='color:{PAL['muted']};font-size:.82rem'>{s.get('url','')}</span>",
+                f"priority {s.get('priority','')} \n"
+                f"<span style='color:{PAL['muted']};font-size:.82rem'>{s.get('url','')}</span>",
                 unsafe_allow_html=True)
         st.caption("Managed in `config/user_sources.yaml`. The scheduled job runs "
                    "`ingest.py --min-priority 2`, so priority-1&2 feeds refresh daily.")
 
     # ── add a Michelin / authority pick (e.g. from the printed guide) ────────
     st.divider()
-    st.markdown("### ⭐ Add a Michelin / authority pick")
+    st.markdown("### Add a Michelin / authority pick")
     st.caption("For entries from a printed guide (e.g. the MICHELIN Guide KL/Penang) "
                "or Asia's 50 Best. These are **curated facts, never scraped** — "
                "enter name / stars / cuisine only, not the guide's review text. "
-               "They show under **Today → ⭐ Michelin & authority picks**.")
+               "They show under **Today Michelin & authority picks**.")
     STAR_OPTS = ["", "1 MICHELIN Star", "2 MICHELIN Stars", "3 MICHELIN Stars",
                  "Bib Gourmand", "MICHELIN Selected", "Asia's 50 Best"]
     with st.form("add_authority", clear_on_submit=True):
@@ -1025,7 +1111,7 @@ with add_tab:
                               placeholder="https://…")
         anote = st.text_input("Your own one-line note (optional)",
                               placeholder="e.g. tasting menu; book ahead")
-        asub = st.form_submit_button("⭐ Add pick", type="primary")
+        asub = st.form_submit_button("Add pick", type="primary")
     if asub:
         if not an.strip():
             st.warning("A restaurant name is required.")
@@ -1035,9 +1121,9 @@ with add_tab:
                    "url": aurl.strip(), "note": anote.strip()}
             authority.append_csv(row)
             authority.add_rows([row], embedder=_embedder(), coll=coll)
-            st.success(f"⭐ Added **{row['name']}**"
-                       + (f" ({astars})" if astars else "")
-                       + " to your authority picks and saved it to "
+            st.success(f"Added **{row['name']}**"
+                       + (f"({astars})"if astars else "")
+                       + "to your authority picks and saved it to "
                        "`config/curated_authority.csv`.")
 
     try:

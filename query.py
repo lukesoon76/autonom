@@ -151,15 +151,16 @@ def has_api_key() -> bool:
     return anthropic is not None and bool(key) and "..." not in key
 
 
-def answer(question, context):
-    """Generate a cited answer with Claude, or None if no API key is available."""
+def answer(question, context, system=None):
+    """Generate a cited answer with Claude, or None if no API key is available.
+    `system` overrides the default food-guide prompt (used by EatWhatGPT)."""
     if not has_api_key():
         return None  # signal: fall back to raw snippets
     client = anthropic.Anthropic()
     msg = client.messages.create(
         model=LLM_MODEL,
         max_tokens=800,
-        system=SYSTEM,
+        system=system or SYSTEM,
         messages=[{
             "role": "user",
             "content": f"Question: {question}\n\nSnippets:\n{context}",
