@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Append the Eat List workbook (curated SG / MY / Bangkok eateries) into the
-ChiefEpicure corpus as an "Eat List" source, so those hand-verified places show
+Autonom corpus as an "Eat List" source, so those hand-verified places show
 up in Today / Find / recommendations alongside blogs, Michelin and community
-reviews. Embeds with ChiefEpicure's current model; upserts by a stable id so
+reviews. Embeds with Autonom's current model; upserts by a stable id so
 re-running updates rather than duplicating.
 
     python import_eatlist.py
@@ -107,7 +107,7 @@ def run(wb_path, batch=256):
     got = coll.get(include=["metadatas"])
     kill = [i for i, m in zip(got["ids"], got["metadatas"])
             if not (m.get("source") == "Authority"
-                    or str(m.get("source", "")).startswith("ChiefEpicure"))]
+                    or str(m.get("source", "")).startswith("Autonom"))]
     for k in range(0, len(kill), 500):
         coll.delete(ids=kill[k:k + 500])
     print(f"purged {len(kill)} non-core chunks (scraped sources + old Eat List)")
@@ -153,7 +153,7 @@ def run(wb_path, batch=256):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Append the Eat List workbook into ChiefEpicure.")
+    ap = argparse.ArgumentParser(description="Append the Eat List workbook into Autonom.")
     ap.add_argument("--workbook", default=DEFAULT_WB)
     ap.add_argument("--batch", type=int, default=256)
     args = ap.parse_args()

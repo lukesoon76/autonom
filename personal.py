@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Personal layer for ChiefEpicure — your home city + memory of your own reviews.
+Personal layer for Autonom — your home city + memory of your own reviews.
 
 Chope-style: the app remembers the places you save, mark as *been*, rate, and
 note, and uses them to personalise recommendations. Stored locally in
@@ -46,7 +46,7 @@ def _save(d: dict) -> None:
     path = _path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        f.write("# ChiefEpicure personal data — home city, saved places, reviews.\n"
+        f.write("# Autonom personal data — home city, saved places, reviews.\n"
                 "# Private & local; safe to hand-edit.\n")
         yaml.safe_dump(d, f, sort_keys=False, allow_unicode=True)
 

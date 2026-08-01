@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-shot: sign in to GitHub (if needed) and push ChiefEpicure.
-# Usage:  ./push.sh          -> creates a PRIVATE repo named ChiefEpicure
+# One-shot: sign in to GitHub (if needed) and push Autonom.
+# Usage:  ./push.sh          -> creates a PRIVATE repo named Autonom
 #         ./push.sh public   -> creates it PUBLIC instead
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,8 +22,8 @@ if git remote get-url origin >/dev/null 2>&1; then
   echo "→ Remote 'origin' already set — pushing…"
   git push -u origin main
 else
-  echo "→ Creating repo ChiefEpicure ($VIS) and pushing…"
-  gh repo create ChiefEpicure "$VIS" --source=. --remote=origin --push
+  echo "→ Creating repo Autonom ($VIS) and pushing…"
+  gh repo create Autonom "$VIS" --source=. --remote=origin --push
 fi
 
 echo "✅ Done. Repo: $(gh repo view --json url -q .url 2>/dev/null || echo '(see GitHub)')"

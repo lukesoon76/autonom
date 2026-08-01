@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ChiefEpicure daily digest — "what's new & good" as a file you can read or email.
+Autonom daily digest — "what's new & good" as a file you can read or email.
 
 Generates a Markdown + HTML digest from the current corpus (authority picks +
 the freshest finds), writes it to ./digests/, and — only if SMTP is configured
@@ -49,7 +49,7 @@ def gather(region=None, city=None, days=7, limit=10):
 def to_markdown(authority, fresh, region, city, days) -> str:
     where = city or {"MY": "Malaysia", "SG": "Singapore"}.get(region, "Malaysia & Singapore")
     today = dt.datetime.now(dt.timezone.utc).strftime("%A, %d %b %Y")
-    L = [f"# 🍜 ChiefEpicure — what's new & good in {where}", f"_{today}_", ""]
+    L = [f"# 🍜 Autonom — what's new & good in {where}", f"_{today}_", ""]
     if authority:
         L.append("## ⭐ Michelin & authority picks")
         for a in authority:
@@ -147,7 +147,7 @@ def build(region=None, city=None, days=7, limit=10):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Generate the ChiefEpicure daily digest.")
+    ap = argparse.ArgumentParser(description="Generate the Autonom daily digest.")
     ap.add_argument("--region", choices=["SG", "MY"], default=None)
     ap.add_argument("--city", default=None)
     ap.add_argument("--days", type=int, default=7)
@@ -161,5 +161,5 @@ if __name__ == "__main__":
           f"({len(authority)} authority + {len(fresh)} fresh).")
     if args.email:
         where = args.city or args.region or "MY & SG"
-        subject = f"🍜 ChiefEpicure — what's new & good ({where})"
+        subject = f"🍜 Autonom — what's new & good ({where})"
         print(maybe_email(subject, html))

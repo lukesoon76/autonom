@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ChiefEpicure — Streamlit UI for the FoodRAG "where to eat"system.
+Autonom — Streamlit UI for the FoodRAG "where to eat"system.
 
     streamlit run app.py
 
@@ -38,7 +38,7 @@ import recommender
 import util
 from util import ago, parse_pub
 
-st.set_page_config(page_title="ChiefEpicure", page_icon="", layout="wide")
+st.set_page_config(page_title="Autonom", page_icon="", layout="wide")
 
 REGION_LABEL = {"MY": "Malaysia", "SG": "Singapore", "TH": "Thailand",
                 "ID": "Indonesia", "PH": "Philippines", "VN": "Vietnam",
@@ -302,7 +302,7 @@ DISPLAY = auth.display_name(USER) if USER else "guest"
 
 # ── header ───────────────────────────────────────────────────────────────────
 st.markdown(
-    "<div class='brand'>ChiefEpicure</div>"
+    "<div class='brand'>Autonom</div>"
     "<div class='tagline'>Your food guide for Malaysia &amp; Singapore — ask it "
     "anything, grounded in a curated list of real places.</div>"
     "<div class='warn'>Curated · Member-reviewed · No scraping</div>",
@@ -526,7 +526,7 @@ with home_tab:
         with st.container(border=True):
             st.markdown(md)
         st.download_button("Download digest (.md)", md,
-                           file_name=f"chiefepicure-{NOW:%Y-%m-%d}.md",
+                           file_name=f"autonom-{NOW:%Y-%m-%d}.md",
                            mime="text/markdown")
         st.caption("Written daily to `digests/` by the scheduled job; add SMTP env "
                    "vars to also get it emailed (see README).")
@@ -535,10 +535,10 @@ with home_tab:
         st.info("Nothing here yet for this city. Widen the filter, or add a feed "
                 "under **Add a source**.")
     else:
-        # Featured ChiefEpicures — top contributors + their recent posts
+        # Featured Autonoms — top contributors + their recent posts
         feat = community.featured_contributors(arts, top=6)
         if feat:
-            st.markdown("<div class='sechead'>Featured ChiefEpicures</div>",
+            st.markdown("<div class='sechead'>Featured Autonoms</div>",
                         unsafe_allow_html=True)
             fcols = st.columns(2)
             for i, c in enumerate(feat):
@@ -945,7 +945,7 @@ with contribute_tab:
     st.markdown("<div class='sechead'>Share a dining experience</div>",
                 unsafe_allow_html=True)
     if not USER:
-        st.info("Sign in (sidebar) to post your reviews as a **ChiefEpicure** "
+        st.info("Sign in (sidebar) to post your reviews as a **Autonom** "
                 "— they'll appear in Today, Find and Featured.")
     else:
         st.caption(f"Posting as **{DISPLAY}**")

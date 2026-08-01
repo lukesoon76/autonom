@@ -1,4 +1,4 @@
-# ChiefEpicure (FoodRAG) — where to eat in Malaysia & Singapore
+# Autonom (FoodRAG) — where to eat in Malaysia & Singapore
 
 A small, **local** retrieval-augmented "where to eat" system. It ingests
 food-blog RSS feeds and sitemaps for Kuala Lumpur and Singapore into a vector
@@ -204,10 +204,10 @@ is picked up automatically. Saved feeds default to priority 2, so the
 refresh daily at 04:30:
 
 ```bash
-# installed at ~/Library/LaunchAgents/com.chiefepicure.refresh.plist
-launchctl load -w ~/Library/LaunchAgents/com.chiefepicure.refresh.plist   # enable
-launchctl start com.chiefepicure.refresh                                   # run now (test)
-launchctl unload ~/Library/LaunchAgents/com.chiefepicure.refresh.plist     # disable
+# installed at ~/Library/LaunchAgents/com.autonom.refresh.plist
+launchctl load -w ~/Library/LaunchAgents/com.autonom.refresh.plist   # enable
+launchctl start com.autonom.refresh                                   # run now (test)
+launchctl unload ~/Library/LaunchAgents/com.autonom.refresh.plist     # disable
 ```
 
 **Linux (cron).** Equivalent nightly line:
@@ -220,7 +220,7 @@ launchctl unload ~/Library/LaunchAgents/com.chiefepicure.refresh.plist     # dis
 
 `digest.py` builds a "what's new & good" digest (authority picks + freshest
 finds) as **Markdown + HTML** into `./digests/YYYY-MM-DD.*`, and a launchd job
-(`com.chiefepicure.digest`, 07:00) writes it daily. It's also in the app under
+(`com.autonom.digest`, 07:00) writes it daily. It's also in the app under
 **Today → 📬 Today's digest**.
 
 ```bash
