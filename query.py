@@ -151,6 +151,20 @@ def has_api_key() -> bool:
     return anthropic is not None and bool(key) and "..." not in key
 
 
+DRAFT_SYSTEM = ("You are Autonom's review-writing assistant. Turn the member's "
+                "rough notes/bullet points into a warm, honest first-person dining "
+                "review of 3-5 short sentences. Keep their facts; don't invent "
+                "dishes, prices or claims. Plain text, no headings or emoji.")
+
+
+def draft_review(notes: str, place: str = "") -> str | None:
+    """CHAIZEN-style: expand bullet notes into review prose (None if no API key)."""
+    if not has_api_key() or not notes.strip():
+        return None
+    q = (f"Place: {place}\n" if place.strip() else "") + f"Notes:\n{notes.strip()}"
+    return answer(q, "", system=DRAFT_SYSTEM)
+
+
 def answer(question, context, system=None):
     """Generate a cited answer with Claude, or None if no API key is available.
     `system` overrides the default food-guide prompt (used by EatWhatGPT)."""

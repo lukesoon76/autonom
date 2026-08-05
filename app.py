@@ -940,44 +940,180 @@ with mylist_tab:
                 render_card(card_from_hit(h), f"rec_{i}")
 
 
-# ── tab: Contribute (write a dining review with photos) ──────────────────────
+# ── tab: Contribute (write a dining review: photos, map, criteria scores) ────
+REVIEW_TYPES = ["Hawker / Kopitiam", "Zi Char / Tai Chow", "Noodles", "Seafood",
+                "Chinese", "Malay / Nasi", "Indian / Mamak", "Japanese / Omakase",
+                "Korean", "Thai", "Cafe / Brunch", "Western", "Fine dining",
+                "Dessert / Bakery", "Bar / Drinks", "Other"]
+CRITERIA = [("food", "Food quality"), ("ambience", "Ambience"),
+            ("service", "Service"), ("value", "Value for money")]
+
+
+def review_scores_html(rv) -> str:
+    """Overall + per-criterion score chips for a member review card."""
+    sc = rv.get("scores") or {}
+    overall = rv.get("overall") or rv.get("rating") or 0
+    chips = [f"<span class='badge'>Overall {overall:g}/5</span>"]
+    for key, label in CRITERIA:
+        if sc.get(key):
+            chips.append(f"<span class='badge'>{label} {sc[key]}/5</span>")
+    return "<div class='chips'>" + "".join(chips) + "</div>"
+
+
+PRICE_BANDS = ["Not sure", "Under RM20 per pax", "RM20–RM50 per pax",
+               "RM50–RM100 per pax", "RM100–RM200 per pax", "Above RM200 per pax"]
+
+
+def _map_preview(name, addr, city, region):
+    """Live pin preview for the address the member is typing (offline gazetteer)."""
+    loc = geo_gazetteer.locate({"address": addr, "city": city, "title": name,
+                                "region": region})
+    if not loc:
+        return
+    try:
+        import pandas as pd
+        import pydeck as pdk
+        lat, lng, prec = loc
+        basemap = ("https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+                   if mode == "Dark" else
+                   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
+        st.pydeck_chart(pdk.Deck(
+            map_style=basemap,
+            initial_view_state=pdk.ViewState(latitude=lat, longitude=lng, zoom=13),
+            layers=[pdk.Layer("ScatterplotLayer",
+                              data=pd.DataFrame([{"lat": lat, "lng": lng}]),
+                              get_position="[lng, lat]", get_radius=90,
+                              get_fill_color=_rgb(PAL["ink"]) + [230],
+                              radius_min_pixels=7, stroked=True,
+                              get_line_color=[255, 255, 255], line_width_min_pixels=1)]),
+            use_container_width=True)
+        st.caption(f"Approximate pin — snapped to {prec} (offline gazetteer).")
+    except Exception:
+        pass
+
+
 with contribute_tab:
     st.markdown("<div class='sechead'>Share a dining experience</div>",
                 unsafe_allow_html=True)
     if not USER:
-        st.info("Sign in (sidebar) to post your reviews as a **Autonom** "
+        st.info("Sign in (sidebar) to post your reviews as an **Autonom** "
                 "— they'll appear in Today, Find and Featured.")
     else:
+        if st.session_state.pop("rv_flash", None):
+            st.success(st.session_state.pop("rv_flash_msg", "Posted."))
         st.caption(f"Posting as **{DISPLAY}**")
-        with st.form("write_review", clear_on_submit=True):
-            rname = st.text_input("Place", placeholder="e.g. Line Clear Nasi Kandar")
-            r1, r2, r3 = st.columns(3)
-            rregion = r1.selectbox("Region", ["MY", "SG", "TH", "ID", "PH", "VN",
-                                              "KH", "LA", "MM", "BN"], index=0)
-            rcity = r2.text_input("City / area", placeholder="Penang / Bangsar")
-            rrating = r3.slider("Rating", 1, 5, 4)
-            rcuisine = st.text_input("Cuisine / dish", placeholder="Nasi kandar, mamak")
-            rtext = st.text_area("Your experience",
-                                 placeholder="What you ate, how it was, what to order…")
-            rphotos = st.file_uploader("Photos of the food & drinks",
-                                       type=["jpg", "jpeg", "png", "webp"],
-                                       accept_multiple_files=True)
-            rurl = st.text_input("Link (optional)", placeholder="menu / map / IG post")
-            posted = st.form_submit_button("Post review", type="primary")
-        if posted:
+
+        # ── AI writing assistant (CHAIZEN-style) ─────────────────────────────
+        with st.expander("✎ Autonom AI — turn your notes into a review draft"):
+            st.caption("Jot the highlights, one per line. I'll write the review; "
+                       "you can edit it below before posting.")
+            notes = st.text_area("Highlights", key="rv_bullets", label_visibility="collapsed",
+                                 placeholder="1. Good coffee\n2. Cheap breakfast set\n"
+                                             "3. Nice decor\n4. Friendly service")
+            if st.button("Generate draft", key="rv_gen"):
+                if not notes.strip():
+                    st.warning("Add a few highlights first.")
+                else:
+                    draft = None
+                    if query.has_api_key():
+                        with st.spinner("Writing your draft…"):
+                            try:
+                                draft = query.draft_review(
+                                    notes, st.session_state.get("rv_name", ""))
+                            except Exception as e:
+                                st.warning(f"AI unavailable ({type(e).__name__}).")
+                    if not draft:            # offline fallback: tidy bullets into prose
+                        lines = [ln.strip("-•*0123456789. ").strip()
+                                 for ln in notes.splitlines() if ln.strip()]
+                        draft = " ".join(s if s.endswith((".", "!", "?")) else s + "."
+                                         for s in lines)
+                    st.session_state.rv_text = draft
+                    st.rerun()
+
+        # ── listing information ──────────────────────────────────────────────
+        st.markdown("**Listing information**")
+        rname = st.text_input("Restaurant name *", key="rv_name",
+                              placeholder="e.g. Line Clear Nasi Kandar")
+        r1, r2, r3 = st.columns(3)
+        rregion = r1.selectbox("Region", ["MY", "SG", "TH", "ID", "PH", "VN",
+                                          "KH", "LA", "MM", "BN"], key="rv_region")
+        rcity = r2.text_input("City / area", key="rv_city",
+                              placeholder="Penang / Bangsar")
+        rtype = r3.selectbox("Category *", REVIEW_TYPES, key="rv_type")
+        rexcerpt = st.text_input("Excerpt (one-line summary)", key="rv_excerpt",
+                                 placeholder="the one-liner that sums it up")
+        rtext = st.text_area("Your experience *", key="rv_text",
+                             placeholder="What you ate, how it was, the vibe…")
+        rorder = st.text_input("What to order", key="rv_order",
+                               placeholder="the dish worth coming back for")
+
+        # ── your scores ──────────────────────────────────────────────────────
+        st.markdown("**Your scores** (1–5)")
+        sc_cols = st.columns(len(CRITERIA))
+        scores = {key: sc_cols[i].slider(label, 1, 5, 4, key=f"rv_sc_{key}")
+                  for i, (key, label) in enumerate(CRITERIA)}
+        st.caption(f"Overall so far: **{sum(scores.values())/len(scores):g}/5**")
+
+        # ── pricing ──────────────────────────────────────────────────────────
+        st.markdown("**Pricing**")
+        rprice = st.radio("Price (per pax)", PRICE_BANDS, horizontal=True,
+                          key="rv_price", label_visibility="collapsed")
+
+        # ── contact ──────────────────────────────────────────────────────────
+        st.markdown("**Contact**")
+        cc1, cc2 = st.columns(2)
+        rphone = cc1.text_input("Phone", key="rv_phone", placeholder="+60…")
+        rweb = cc2.text_input("Website", key="rv_web", placeholder="https://…")
+
+        # ── map ──────────────────────────────────────────────────────────────
+        st.markdown("**Map**")
+        mc1, mc2 = st.columns(2)
+        rmaps = mc1.text_input("Google Maps link", key="rv_maps",
+                               placeholder="paste a Google Maps URL")
+        raddr = mc2.text_input("Address", key="rv_addr",
+                               placeholder="listing address, e.g. Bangsar")
+        _map_preview(rname, raddr, rcity, rregion)
+
+        # ── media & menu ─────────────────────────────────────────────────────
+        st.markdown("**Media & menu**")
+        rphotos = st.file_uploader("Photos (max 5)", key="rv_photos",
+                                   type=["jpg", "jpeg", "png", "webp"],
+                                   accept_multiple_files=True)
+        rvideo = st.text_input("Video — YouTube / Vimeo URL", key="rv_video",
+                               placeholder="https://youtu.be/…")
+        rmenu = st.text_input("Menu info", key="rv_menu",
+                              placeholder="signatures, set prices, opening hours…")
+
+        if st.button("Post review", type="primary", key="rv_post"):
             if not rname.strip() or not rtext.strip():
-                st.warning("A place name and a few words are required.")
+                st.warning("Restaurant name and your experience are required.")
             else:
+                overall = round(sum(scores.values()) / len(scores), 1)
+                maps = community.maps_link(rmaps or raddr, rname.strip(), rcity.strip())
                 imgs = community.save_images(USER, rphotos)
                 review = {"name": rname.strip(), "region": rregion,
-                          "city": rcity.strip(), "cuisine": rcuisine.strip(),
-                          "stars": f"{rrating}/5", "rating": rrating,
-                          "text": rtext.strip(), "url": rurl.strip(),
+                          "city": rcity.strip(), "type": rtype, "cuisine": rtype,
+                          "excerpt": rexcerpt.strip(), "address": raddr.strip(),
+                          "location": raddr.strip() or rcity.strip(), "maps": maps,
+                          "scores": scores, "overall": overall,
+                          "rating": round(overall), "stars": f"{overall:g}/5",
+                          "price": "" if rprice == "Not sure" else rprice,
+                          "phone": rphone.strip(), "website": rweb.strip(),
+                          "order": rorder.strip(), "menu": rmenu.strip(),
+                          "video": rvideo.strip(), "text": rtext.strip(),
+                          "url": rweb.strip() or rvideo.strip(),
                           "images": imgs, "ts": NOW.isoformat()}
                 review = personal.add_review(review)
                 community.embed_review(review, USER, DISPLAY, coll, _embedder())
-                st.success("Posted! Your review is now live in Today, Find and "
-                           "Featured. Thanks for contributing.")
+                for k in ("rv_name", "rv_city", "rv_excerpt", "rv_text", "rv_order",
+                          "rv_phone", "rv_web", "rv_maps", "rv_addr", "rv_video",
+                          "rv_menu", "rv_bullets", "rv_photos"):
+                    st.session_state.pop(k, None)
+                st.session_state.rv_flash = True
+                st.session_state.rv_flash_msg = (
+                    f"Posted — overall {overall:g}/5. Your review is live in Today, "
+                    "Find and EatWhatGPT. Thanks for contributing.")
+                st.rerun()
 
         # your own reviews
         my = personal.load_reviews()
@@ -992,14 +1128,22 @@ with contribute_tab:
                 else:
                     cimg.markdown("<div class='thumb-wrap'><div class='thumb-ph'>"
                                   "</div></div>", unsafe_allow_html=True)
+                contact = contact_html({"address": rv.get("address") or rv.get("location", ""),
+                                        "phone": rv.get("phone", ""),
+                                        "maps": rv.get("maps", "")})
+                price_badge = (f"<span class='badge'>{rv['price']}</span>"
+                               if rv.get("price") else "")
+                excerpt = (f"<div class='snippet'><i>{rv['excerpt']}</i></div>"
+                           if rv.get("excerpt") else "")
                 cbody.markdown(
-                    f"**{rv['name']}** · {''* int(rv.get('rating', 0))} \n"
+                    f"**{rv['name']}**"
                     f"<span class='badge badge-reg'>{REGION_LABEL.get(rv.get('region',''), rv.get('region',''))}</span>"
                     f"<span class='badge'>{rv.get('city','')}</span>"
-                    f"<span class='badge'>{rv.get('cuisine','')}</span>\n"
-                    f"<span class='snippet'>{rv.get('text','')[:240]}</span>",
+                    f"<span class='badge'>{rv.get('type', rv.get('cuisine',''))}</span>"
+                    f"{price_badge}{review_scores_html(rv)}{excerpt}"
+                    f"<span class='snippet'>{rv.get('text','')[:240]}</span>{contact}",
                     unsafe_allow_html=True)
-                if len(shots) >1:
+                if len(shots) > 1:
                     cbody.image(shots[1:4], width=90)
                 if cbody.button("Delete", key=f"delrv_{rv['id']}"):
                     community.unembed_review(USER, rv["id"], coll)

@@ -9,8 +9,20 @@ import os
 import secrets
 from collections import Counter
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
 import auth
+
+
+def maps_link(location: str, name: str = "", city: str = "") -> str:
+    """Turn a member's location input into a usable Google Maps link: a pasted
+    maps/http URL passes through; anything else (an address or place text) becomes
+    a Google Maps *search* deep link built from name + location + city."""
+    loc = (location or "").strip()
+    if loc.startswith(("http://", "https://")):
+        return loc
+    q = ", ".join(p for p in (name, loc, city) if p and p.strip())
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(q)}" if q else ""
 
 # Saved under ./static so Streamlit's static server can serve them (config.toml
 # server.enableStaticServing=true). Files in ./static are exposed at URL
@@ -53,10 +65,22 @@ def source_label(display: str) -> str:
     return f"Autonom · {display}"
 
 
+def _scores_text(review: dict) -> str:
+    """Human-readable per-criterion score line, e.g. 'food 5, ambience 4…'."""
+    sc = review.get("scores") or {}
+    parts = [f"{k} {v}" for k, v in sc.items() if v]
+    return "; ".join(parts)
+
+
 def embed_review(review: dict, username: str, display: str, coll, embedder) -> None:
-    """Index (or update) one member review in the shared collection."""
-    doc = (f"{review['name']} — {review.get('cuisine', '')} in "
-           f"{review.get('city', '')}. {review.get('stars', '')} "
+    """Index (or update) one member review in the shared collection, carrying the
+    type, per-criterion scores, overall rating and map link so it surfaces (with
+    contact + score reasons) in Find / EatWhatGPT alongside the curated list."""
+    rtype = review.get("type", "") or review.get("cuisine", "")
+    scores = _scores_text(review)
+    doc = (f"{review['name']} — {rtype} in {review.get('city', '')}. "
+           f"{review.get('stars', '')} "
+           f"{'(' + scores + '). ' if scores else ''}"
            f"{review.get('text', '')}").strip()
     meta = {
         "source": source_label(display),
@@ -68,6 +92,15 @@ def embed_review(review: dict, username: str, display: str, coll, embedder) -> N
         "title": review["name"],
         "image": served_url((review.get("images") or [""])[0]),
         "priority": 2,
+        # structured fields so member reviews behave like curated rows downstream
+        "cuisine": rtype,
+        "food_type": rtype,
+        "rating": float(review.get("overall") or review.get("rating") or 0),
+        "price": review.get("price", ""),
+        "address": review.get("address", "") or review.get("location", ""),
+        "phone": review.get("phone", ""),
+        "maps": review.get("maps", ""),
+        "order": review.get("order", "") or review.get("text", "")[:80],
         "date": review.get("ts", ""),
         "ingested": datetime.now(timezone.utc).isoformat(),
     }
