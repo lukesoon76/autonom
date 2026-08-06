@@ -1277,3 +1277,70 @@ with add_tab:
     st.caption(f"You currently have **{n_auth}** authority picks. Bulk-edit them any "
                "time in `config/curated_authority.csv`, then rerun "
                "`python curate_authority.py`.")
+
+    # ── Instagram sources (official Graph API — no scraping) ─────────────────
+    import json as _json
+    import subprocess as _sp
+    IG_CONF = os.path.expanduser("~/eatlist/config/instagram.json")
+    IG_SECRET = os.path.expanduser("~/eatlist/config/instagram_secret.json")
+    IG_PY = os.path.expanduser("~/eatlist/.venv/bin/python")
+    IG_SCRIPT = os.path.expanduser("~/eatlist/scripts/ingest_instagram.py")
+
+    st.divider()
+    st.markdown("### Instagram sources (Graph API)")
+    st.caption("Auto-ingest recent posts from **Business/Creator** food-blogger "
+               "handles and hashtags via Instagram's **official Graph API** — "
+               "captions are parsed into the Master List, then synced to Autonom. "
+               "No scraping, ToS-respecting. A daily job runs at 06:00; you can "
+               "also run it on demand below.")
+
+    connected = bool(os.environ.get("IG_ACCESS_TOKEN", "").strip()
+                     or os.path.exists(IG_SECRET))
+    if connected:
+        st.success("Graph API token detected — ingestion is live.")
+    else:
+        st.info("Not connected yet (the daily job stays dormant). Add a long-lived "
+                "token + IG user id to `~/eatlist/config/instagram_secret.json` "
+                '(`{"access_token": "…", "user_id": "…"}`) to switch it on. '
+                "Setup steps are in `scripts/ingest_instagram.py`.")
+
+    try:
+        _ig = _json.load(open(IG_CONF)) if os.path.exists(IG_CONF) else {}
+    except (ValueError, OSError):
+        _ig = {}
+    with st.form("ig_sources"):
+        ig_handles = st.text_area(
+            "Handles (one per line, Business/Creator accounts only)",
+            value="\n".join(_ig.get("handles", [])),
+            placeholder="eatdrinkkl\nklfoodie\nmalaysiafoodandtravel")
+        ig_tags = st.text_area("Hashtags (one per line, without #)",
+                               value="\n".join(_ig.get("hashtags", [])),
+                               placeholder="klfood\npenangfood")
+        ig_n = st.slider("Max posts per source", 1, 25,
+                         int(_ig.get("max_per_source", 10)))
+        if st.form_submit_button("Save Instagram sources", type="primary"):
+            os.makedirs(os.path.dirname(IG_CONF), exist_ok=True)
+            out = {"handles": [h.strip().lstrip("@") for h in ig_handles.splitlines()
+                               if h.strip()],
+                   "hashtags": [t.strip().lstrip("#") for t in ig_tags.splitlines()
+                                if t.strip()],
+                   "max_per_source": ig_n}
+            _json.dump(out, open(IG_CONF, "w"), indent=2)
+            st.success(f"Saved {len(out['handles'])} handle(s) and "
+                       f"{len(out['hashtags'])} hashtag(s).")
+
+    if st.button("Run Instagram sync now", disabled=not connected):
+        with st.spinner("Fetching from the Graph API & merging…"):
+            p = _sp.run([IG_PY, IG_SCRIPT, "--merge"],
+                        cwd=os.path.expanduser("~/eatlist"),
+                        capture_output=True, text=True, timeout=600)
+        st.code((p.stdout or "") + (p.stderr or ""), language="text")
+        if p.returncode == 0:
+            with st.spinner("Syncing new posts into the Autonom core…"):
+                import import_eatlist
+                import_eatlist.run(os.path.expanduser(
+                    "~/eatlist/Asia_Eateries_Master_List.xlsx"))
+            load_articles.clear()
+            st.success("Done — new Instagram posts are live in Autonom.")
+        else:
+            st.error("The Graph API run failed — see the log above.")
