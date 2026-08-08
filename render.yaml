@@ -1,0 +1,20 @@
+# Render Blueprint for Autonom. Deploy via Render → New → Blueprint (point at this
+# repo), or create a Docker Web Service manually and add a disk mounted at /var/data.
+services:
+  - type: web
+    name: autonom
+    runtime: docker
+    plan: starter
+    healthCheckPath: /_stcore/health
+    autoDeploy: true
+    envVars:
+      - key: AUTONOM_DATA_DIR
+        value: /var/data
+      - key: HF_HOME
+        value: /opt/hf
+      - key: ANTHROPIC_API_KEY   # optional — enables Claude answers + EatWhatGPT prose
+        sync: false
+    disk:
+      name: autonom-data          # persistent: vector store, accounts, uploads
+      mountPath: /var/data
+      sizeGB: 1

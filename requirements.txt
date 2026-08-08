@@ -8,3 +8,4 @@ sentence-transformers>=3.0
 anthropic>=0.40
 python-dotenv>=1.0
 streamlit>=1.36        # optional: the `streamlit run app.py` web UI
+openpyxl>=3.1           # read the curated Master List workbook

@@ -1,0 +1,14 @@
+.venv/
+chroma_db/
+_seed_chroma/
+static/uploads/
+digests/
+__pycache__/
+*.pyc
+*.log
+.git/
+config/users.json
+config/users_data/
+config/user_data.yaml
+config/user_sources.yaml
+.env
