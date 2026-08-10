@@ -1,0 +1,6 @@
+{
+  "handles": ["eatdrinkkl", "klfoodie", "malaysiafoodandtravel"],
+  "hashtags": ["klfood"],
+  "max_per_source": 10,
+  "_note": "Cloud Instagram sources. Edit + redeploy to change what the daily refresh pulls."
+}

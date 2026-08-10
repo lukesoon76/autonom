@@ -14,6 +14,16 @@ services:
         value: /opt/hf
       - key: ANTHROPIC_API_KEY   # optional — enables Claude answers + EatWhatGPT prose
         sync: false
+      # daily in-app Instagram refresh (Render crons can't touch the disk, so the
+      # scheduler runs inside the web service). Set the two IG_* secrets to switch on.
+      - key: AUTONOM_CLOUD_REFRESH
+        value: "1"
+      - key: AUTONOM_REFRESH_HOUR_UTC
+        value: "22"              # 22:00 UTC ≈ 06:00 MYT
+      - key: IG_ACCESS_TOKEN     # long-lived Graph API token (from ig_setup.py)
+        sync: false
+      - key: IG_USER_ID          # your IG Business account id
+        sync: false
     disk:
       name: autonom-data          # persistent: vector store, accounts, uploads
       mountPath: /var/data

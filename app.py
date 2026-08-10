@@ -40,6 +40,17 @@ from util import ago, parse_pub
 
 st.set_page_config(page_title="Autonom", page_icon="", layout="wide")
 
+# Cloud (Render): start the once-a-day Instagram refresh inside the web process
+# — the only way to update the disk-backed store (Render crons can't mount the
+# disk). Guarded by env + cache_resource so it runs once and never locally.
+if os.getenv("AUTONOM_CLOUD_REFRESH"):
+    @st.cache_resource
+    def _cloud_scheduler():
+        import cloud_refresh
+        cloud_refresh.start()
+        return True
+    _cloud_scheduler()
+
 REGION_LABEL = {"MY": "Malaysia", "SG": "Singapore", "TH": "Thailand",
                 "ID": "Indonesia", "PH": "Philippines", "VN": "Vietnam",
                 "KH": "Cambodia", "LA": "Laos", "MM": "Myanmar",
