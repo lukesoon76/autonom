@@ -59,7 +59,9 @@ def generate(m, cache=None) -> dict:
         return {}
     q = f"Name: {m.get('title', '')}\nAddress: {m.get('address', '') or m.get('city', '')}"
     try:
-        raw = query.answer(q, "", system=SYSTEM) or ""
+        # cheap model — tag extraction doesn't need Opus, and we run it at scale
+        raw = query.answer(q, "", system=SYSTEM,
+                           model="claude-haiku-4-5-20251001") or ""
         raw = raw[raw.find("{"): raw.rfind("}") + 1]
         tags = json.loads(raw)
     except Exception:

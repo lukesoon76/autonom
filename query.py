@@ -165,14 +165,15 @@ def draft_review(notes: str, place: str = "") -> str | None:
     return answer(q, "", system=DRAFT_SYSTEM)
 
 
-def answer(question, context, system=None):
+def answer(question, context, system=None, model=None):
     """Generate a cited answer with Claude, or None if no API key is available.
-    `system` overrides the default food-guide prompt (used by Makan Kaki)."""
+    `system` overrides the default food-guide prompt (used by Makan Kaki);
+    `model` overrides the LLM (e.g. a cheap Haiku for bulk tag enrichment)."""
     if not has_api_key():
         return None  # signal: fall back to raw snippets
     client = anthropic.Anthropic()
     msg = client.messages.create(
-        model=LLM_MODEL,
+        model=model or LLM_MODEL,
         max_tokens=800,
         system=system or SYSTEM,
         messages=[{

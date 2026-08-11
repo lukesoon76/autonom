@@ -24,6 +24,13 @@ services:
         sync: false
       - key: IG_USER_ID          # your IG Business account id
         sync: false
+      # bulk enrichment throughput for the ~9.6k corpus (photos free; tags on Haiku)
+      - key: AUTONOM_WARM_PHOTOS
+        value: "1000"            # og:image fetches/day → whole corpus in ~1-2 wks
+      - key: AUTONOM_WARM_TAGS
+        value: "700"             # Haiku tag fills/day (cheap)
+      - key: GOOGLE_MAPS_API_KEY  # optional — broad real photos if you add it
+        sync: false
     disk:
       name: autonom-data          # persistent: vector store, accounts, uploads
       mountPath: /var/data
