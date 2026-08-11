@@ -12,3 +12,5 @@ digests/
 config/users.json
 config/users_data/
 static/uploads/
+config/images.json
+config/ai_tags.json

@@ -33,6 +33,7 @@ import facets
 import geo_gazetteer
 import ingest
 import ai_tags
+import images
 import personal
 import query
 import recommender
@@ -557,9 +558,15 @@ def _place_label(a) -> str:
             or REGION_LABEL.get(a.get("region", ""), "Autonom") or "Autonom")
 
 
+def card_image(a) -> str:
+    """Best photo for an entry: member upload → cached og:image/Places photo → ''."""
+    im = a.get("image", "")
+    return community.served_url(im) if im else images.get(a)
+
+
 def thumb_inner(a) -> str:
     """Inner of the grid thumbnail — real photo if present, else placeholder tile."""
-    img = community.served_url(a.get("image", "")) if a.get("image") else ""
+    img = card_image(a)
     if img:
         return f"<img src='{img}' loading='lazy' onerror=\"this.style.display='none'\"/>"
     return f"<div class='pph'><b>{_place_label(a)[:28]}</b></div>"
@@ -627,7 +634,7 @@ def render_card(a, key):
     saved = url in SAVED
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 5, 1.3], vertical_alignment="center")
-        c1.markdown(_thumb(a.get("image", "")), unsafe_allow_html=True)
+        c1.markdown(_thumb(card_image(a)), unsafe_allow_html=True)
         dist_chip = (f"<span class='tag tag-open'>{a['dist']:.1f} km</span>"
                      if a.get("dist") is not None else "")
         text = (a.get("text", "") or "")[:240]

@@ -33,12 +33,25 @@ def _loop(hour_utc: int):
 
 
 def _run_safe():
+    # 1) pull new Instagram posts into the core
     try:
         import ig_cloud
-        n, msg = ig_cloud.run()
+        _, msg = ig_cloud.run()
         print(f"[cloud_refresh] {msg}")
     except Exception as e:                          # never let the thread die
-        print(f"[cloud_refresh] error: {type(e).__name__}: {e}")
+        print(f"[cloud_refresh] ig error: {type(e).__name__}: {e}")
+    # 2) fill missing GenAI tags (needs ANTHROPIC_API_KEY)
+    try:
+        import ai_tags
+        ai_tags.warm(int(os.getenv("AUTONOM_WARM_TAGS", "120")))
+    except Exception as e:
+        print(f"[cloud_refresh] tag-warm error: {type(e).__name__}: {e}")
+    # 3) fill missing photos (og:image free; Google Places needs GOOGLE_MAPS_API_KEY)
+    try:
+        import images
+        images.warm(int(os.getenv("AUTONOM_WARM_PHOTOS", "120")))
+    except Exception as e:
+        print(f"[cloud_refresh] photo-warm error: {type(e).__name__}: {e}")
 
 
 def start():

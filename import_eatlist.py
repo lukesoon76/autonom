@@ -107,7 +107,8 @@ def run(wb_path, batch=256):
     got = coll.get(include=["metadatas"])
     kill = [i for i, m in zip(got["ids"], got["metadatas"])
             if not (m.get("source") == "Authority"
-                    or str(m.get("source", "")).startswith("Autonom"))]
+                    or str(m.get("source", "")).startswith("Autonom")
+                    or str(m.get("source", "")).startswith("Instagram"))]
     for k in range(0, len(kill), 500):
         coll.delete(ids=kill[k:k + 500])
     print(f"purged {len(kill)} non-core chunks (scraped sources + old Eat List)")

@@ -79,11 +79,13 @@ def _media_to_meta(m, default_name=""):
     if not name:
         return None
     permalink = m.get("permalink", "")
+    photo = m.get("media_url", "") if m.get("media_type") != "VIDEO" \
+        else m.get("thumbnail_url", "")
     return {
         "doc": _clean(cap)[:400] or name,
         "meta": {"source": "Instagram (Graph API)", "region": region,
                  "city": address.split(",")[-1].strip() if address else "",
-                 "url": permalink, "title": name, "image": "", "priority": 2,
+                 "url": permalink, "title": name, "image": photo, "priority": 2,
                  "cuisine": "", "food_type": "", "accolades": "", "price": "",
                  "hours": hours, "address": address, "phone": "",
                  "maps": maps_link(name, address, ""), "order": "",
@@ -97,7 +99,8 @@ def _media_to_meta(m, default_name=""):
 
 def _fetch_handle(handle, uid, tok, n):
     fields = (f"business_discovery.username({handle})"
-              f"{{media.limit({n}){{caption,permalink,timestamp}}}}")
+              f"{{media.limit({n}){{caption,permalink,timestamp,media_url,"
+              f"media_type,thumbnail_url}}}}")
     r = requests.get(f"{GRAPH}/{uid}",
                      params={"fields": fields, "access_token": tok}, timeout=30)
     if r.status_code != 200:
@@ -115,8 +118,9 @@ def _fetch_hashtag(tag, uid, tok, n):
     if not ids:
         return []
     r2 = requests.get(f"{GRAPH}/{ids[0]['id']}/recent_media",
-                      params={"user_id": uid, "fields": "caption,permalink,timestamp",
-                              "access_token": tok, "limit": n}, timeout=30)
+                      params={"user_id": uid, "limit": n, "access_token": tok,
+                              "fields": "caption,permalink,timestamp,media_url,"
+                                        "media_type,thumbnail_url"}, timeout=30)
     if r2.status_code != 200:
         raise RuntimeError(r2.json().get("error", {}).get("message", r2.text)[:160])
     return [x for x in (_media_to_meta(m) for m in r2.json().get("data", [])) if x]
