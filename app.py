@@ -112,8 +112,21 @@ def facet_options(count: int):
     return [t for t, _ in ft.most_common() if t]
 
 
+def is_curated(m) -> bool:
+    """The premium tier: an accolade, an authority pick, or a strong rating —
+    excludes broad directory rows (Ranting Panda, hawker centres) that carry none."""
+    if facets.accolade_tier(m):
+        return True
+    if str(m.get("source", "")) == "Authority":
+        return True
+    try:
+        return float(m.get("rating") or 0) >= 4.4
+    except (TypeError, ValueError):
+        return False
+
+
 @st.cache_data(show_spinner=False)
-def browse_cards(count, region, area, cuisine, acc, price, ft, limit=24):
+def browse_cards(count, region, area, cuisine, acc, price, ft, curated=False, limit=24):
     """Rich, full-metadata cards from the whole corpus for the magazine grid —
     filtered by the top bar, deduped by (title, city), best places first."""
     got = _collection().get(include=["metadatas", "documents"])
@@ -122,6 +135,8 @@ def browse_cards(count, region, area, cuisine, acc, price, ft, limit=24):
     seen, rows = set(), []
     for m, d in zip(metas, docs):
         if region and region != "All" and m.get("region") != region:
+            continue
+        if curated and not is_curated(m):
             continue
         if not facets.passes(m, acc, price, ft):
             continue
@@ -434,6 +449,14 @@ with st.expander("More filters · location · save home"):
         st.toast("Location saved")
     st.caption("Claude answers on" if query.has_api_key()
                else "No API key — ranked snippets")
+_ct1, _ct2 = st.columns([1.4, 5])
+curated_only = _ct1.toggle("Curated only", value=False, key="curated_only",
+                           help="Show just the premium tier — Michelin/Bib, "
+                                "authority picks and top-rated — hiding broad "
+                                "directory listings.")
+_ct2.caption("Premium tier: Michelin/Bib · authority picks · top-rated"
+             if curated_only else "Browsing everything · flip on for the "
+             "starred/curated tier only")
 st.write("")
 
 chat_tab, home_tab, find_tab, map_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
@@ -770,7 +793,8 @@ with home_tab:
 
         # ── the browse grid (rich, image-forward magazine cards) ────────────
         bcards, btotal = browse_cards(stats["total"], region, area, cuisine,
-                                      acc_sel, price_sel, ft_sel, 24)
+                                      acc_sel, price_sel, ft_sel,
+                                      curated=curated_only, limit=24)
         st.markdown("<div class='sechead'>Browse the guide</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi'>{btotal} places match · showing {len(bcards)} "
                     "· sorted by accolade &amp; rating</div>", unsafe_allow_html=True)
@@ -921,6 +945,8 @@ with find_tab:
         cards, seen = [], set()
         for h in hits:
             m = h["meta"]
+            if curated_only and not is_curated(m):
+                continue
             if f_type != "Any type" and (m.get("food_type") or "") != f_type:
                 continue
             if f_price != "Any price" and facets.price_band(m) != f_price:
