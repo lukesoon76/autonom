@@ -620,6 +620,44 @@ def render_grid(items, key_prefix, cols=3):
                     st.rerun()
 
 
+@st.cache_data(show_spinner=False)
+def _featured_pool(count):
+    """Standout venues (Michelin/Bib or highly rated) for the featured strip."""
+    got = _collection().get(include=["metadatas", "documents"])
+    metas, docs = got.get("metadatas", []) or [], got.get("documents", []) or []
+    seen, pool = set(), []
+    for m, d in zip(metas, docs):
+        tier = facets.accolade_tier(m)
+        try:
+            rt = float(m.get("rating") or 0)
+        except (TypeError, ValueError):
+            rt = 0
+        if not (tier or rt >= 4.4):
+            continue
+        title = (m.get("title") or "").strip()
+        if not title:
+            continue
+        key = (title.lower(), (m.get("city") or "").lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        pool.append(card_from_hit({"meta": m, "doc": d}))
+    return pool
+
+
+def featured_places(n=3):
+    """A session-stable random trio of standout places (reshuffle on demand)."""
+    pool = _featured_pool(stats["total"])
+    if not pool:
+        return []
+    idxs = st.session_state.get("feat_idxs")
+    if not idxs or st.session_state.get("feat_pool") != len(pool):
+        idxs = random.sample(range(len(pool)), min(n, len(pool)))
+        st.session_state.feat_idxs = idxs
+        st.session_state.feat_pool = len(pool)
+    return [pool[i] for i in idxs]
+
+
 def facets_active() ->bool:
     return acc_sel != "Any"or price_sel != "Any"or ft_sel != "All"
 
@@ -769,14 +807,15 @@ with chat_tab:
         st.markdown("<div class='hero-s'>Tell me a craving, an area or a budget — I'll "
                     "rank real places and give you the reason, contact and directions "
                     "for each.</div>", unsafe_allow_html=True)
-        EXAMPLES = ["Best char kway teow in Penang", "Omakase under $250 in Singapore",
-                    "Supper near Bangsar, open now", "Michelin Bib hawker in KL",
-                    "Nasi lemak worth driving for"]
-        ecols = st.columns(len(EXAMPLES))
-        for c, ex in zip(ecols, EXAMPLES):
-            if c.button(ex, key=f"ex_{ex}", use_container_width=True):
-                st.session_state.pending_q = ex
+        feats = featured_places(3)
+        if feats:
+            _fh1, _fh2 = st.columns([6, 1])
+            _fh1.markdown("<div class='sechead'>Featured places</div>",
+                          unsafe_allow_html=True)
+            if _fh2.button("New picks", key="feat_refresh", use_container_width=True):
+                st.session_state.pop("feat_idxs", None)
                 st.rerun()
+            render_grid(feats, "feat", cols=3)
     else:
         _c1, _c2 = st.columns([6, 1])
         if _c2.button("Clear", key="chat_clear"):
