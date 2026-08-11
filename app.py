@@ -32,9 +32,11 @@ import digest
 import facets
 import geo_gazetteer
 import ingest
+import ai_tags
 import personal
 import query
 import recommender
+import tags
 import util
 from util import ago, parse_pub
 
@@ -109,6 +111,53 @@ def facet_options(count: int):
     return [t for t, _ in ft.most_common() if t]
 
 
+@st.cache_data(show_spinner=False)
+def browse_cards(count, region, area, cuisine, acc, price, ft, limit=24):
+    """Rich, full-metadata cards from the whole corpus for the magazine grid —
+    filtered by the top bar, deduped by (title, city), best places first."""
+    got = _collection().get(include=["metadatas", "documents"])
+    metas, docs = got.get("metadatas", []) or [], got.get("documents", []) or []
+    terms = [t.strip().lower() for t in (area, cuisine) if t and t.strip()]
+    seen, rows = set(), []
+    for m, d in zip(metas, docs):
+        if region and region != "All" and m.get("region") != region:
+            continue
+        if not facets.passes(m, acc, price, ft):
+            continue
+        title = (m.get("title") or "").strip()
+        if not title:
+            continue
+        key = (title.lower(), (m.get("city") or "").lower())
+        if key in seen:
+            continue
+        if terms:
+            hay = (f"{title} {m.get('city','')} {m.get('address','')} "
+                   f"{m.get('cuisine','')} {d}").lower()
+            if not all(t in hay for t in terms):
+                continue
+        seen.add(key)
+        rows.append({"url": m.get("url", ""), "title": title,
+                     "source": m.get("source", ""), "region": m.get("region", ""),
+                     "city": m.get("city", ""), "image": m.get("image", ""),
+                     "text": d, "address": m.get("address", ""),
+                     "phone": m.get("phone", ""), "hours": m.get("hours", ""),
+                     "maps": m.get("maps", ""), "price": m.get("price", ""),
+                     "accolades": m.get("accolades", ""), "rating": m.get("rating", 0),
+                     "order": m.get("order", ""), "cuisine": m.get("cuisine", ""),
+                     "food_type": m.get("food_type", ""), "dist": None, "ts": None})
+
+    def _score(a):
+        w = {"MICHELIN Star": 3, "Bib Gourmand": 2, "MICHELIN Selected": 1}.get(
+            facets.accolade_tier(a), 0)
+        try:
+            rt = float(a.get("rating") or 0)
+        except (TypeError, ValueError):
+            rt = 0
+        return (w, rt, 1 if a.get("image") else 0)
+    rows.sort(key=_score, reverse=True)
+    return rows[:limit], len(seen)
+
+
 @st.cache_data(show_spinner="Placing pins…")
 def map_points(count: int, region, area, cuisine, acc, price, ft):
     """Whole-corpus mappable rows, deduped by (title, city) and filtered by
@@ -153,110 +202,135 @@ def map_points(count: int, region, area, cuisine, acc, price, ft):
     return rows, unmapped
 
 
-# ── theme — pure black & white, food-GPT minimal (ChatGPT/Eatbook register) ──
-# All accents resolve to ink so the whole UI is strictly monochrome.
+# ── theme — warm editorial "foodie magazine" (Eatbook / SethLui / MissTamChiak) ─
+# Clean warm neutrals + one terracotta accent; photos supply the colour.
 THEME = {
-    "Light": dict(bg="#ffffff", sidebar="#f7f7f8", card="#ffffff", panel="#ffffff",
-                  ink="#0d0d0d", muted="#6e6e80", border="#e5e5e5", thumb="#efefef",
-                  orange="#0d0d0d", orange_d="#0d0d0d", green="#0d0d0d",
-                  warn_bg="#f7f7f8", warn_bd="#e5e5e5",
-                  reg_bg="#f0f0f0", reg_fg="#111111", geo_bg="#f0f0f0",
-                  ans_bg="#f7f7f8", chip="#f0f0f0"),
-    "Dark": dict(bg="#0d0d0d", sidebar="#171717", card="#161616", panel="#1e1e1e",
-                 ink="#ececf1", muted="#9a9aa5", border="#2b2b2b", thumb="#222222",
-                 orange="#ececf1", orange_d="#ececf1", green="#ececf1",
-                 warn_bg="#171717", warn_bd="#2b2b2b",
-                 reg_bg="#232323", reg_fg="#dddddd", geo_bg="#232323",
-                 ans_bg="#171717", chip="#232323"),
+    "Light": dict(bg="#faf7f2", sidebar="#f4efe7", card="#ffffff", panel="#ffffff",
+                  ink="#201b15", muted="#8c8377", border="#ece5da", thumb="#efe8dd",
+                  accent="#d9542b", accent_soft="#fbeee8",
+                  orange="#d9542b", orange_d="#b8431f", green="#2e7d32",
+                  warn_bg="#fbeee8", warn_bd="#f0d9cd",
+                  reg_bg="#f2ece2", reg_fg="#5a5347", geo_bg="#eef4ee",
+                  ans_bg="#fbf8f3", chip="#f3ede4"),
+    "Dark": dict(bg="#15120e", sidebar="#1b1610", card="#1e1913", panel="#221c15",
+                 ink="#f1ece2", muted="#a89e8f", border="#2e2820", thumb="#2a2319",
+                 accent="#e2673f", accent_soft="#2a1c15",
+                 orange="#e2673f", orange_d="#e2673f", green="#7bbf80",
+                 warn_bg="#2a1c15", warn_bd="#3a281d",
+                 reg_bg="#272119", reg_fg="#cabfae", geo_bg="#1c241c",
+                 ans_bg="#1e1913", chip="#272119"),
 }
 
 
 def build_css(p: dict) ->str:
     return f"""
 <style>
-/* pure black & white, minimal — Arial throughout, no icons */
 html, body, [class*="css"], .stMarkdown, p, div, span, label, input, textarea, button,
-h1, h2, h3, h4, .brand, .sechead {{
-    font-family: Arial, Helvetica, sans-serif;
-}}
+h1, h2, h3, h4 {{ font-family: 'Helvetica Neue', Arial, sans-serif; }}
+.brand, .hero-h, .sechead {{ font-family: Georgia, 'Times New Roman', serif; }}
 
-/* surfaces (drive the light/dark flip) */
+/* hide the (now unused) sidebar entirely */
+[data-testid="stSidebar"], [data-testid="collapsedControl"],
+button[title="Open sidebar"], button[title="Close sidebar"] {{ display:none !important; }}
+.block-container {{ max-width: 1180px; padding-top: 2.2rem; }}
+
+/* surfaces */
 .stApp, [data-testid="stHeader"] {{ background: {p['bg']}; }}
-[data-testid="stSidebar"] {{ background: {p['sidebar']}; border-right:1px solid {p['border']}; }}
 .stApp, .stMarkdown, p, span, label, li, .stRadio, .stSlider, h1, h2, h3, h4 {{ color: {p['ink']}; }}
-[data-testid="stSidebar"] * {{ color: {p['ink']}; }}
 .stTextInput input, [data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
 [data-baseweb="select"] >div, [data-testid="stChatInput"] textarea {{
     background: {p['panel']} !important; color: {p['ink']} !important;
-    border-color: {p['border']} !important; border-radius: 12px !important; }}
+    border-color: {p['border']} !important; border-radius: 10px !important; }}
 [data-testid="stChatInput"] {{ border:1px solid {p['border']}; border-radius:14px;
-    background:{p['panel']}; box-shadow:0 2px 10px rgba(0,0,0,.04); }}
-[data-testid="stExpander"] {{ border-color: {p['border']}; border-radius:10px; }}
+    background:{p['panel']}; box-shadow:0 2px 12px rgba(0,0,0,.05); }}
+[data-testid="stExpander"] {{ border-color: {p['border']}; border-radius:12px;
+    background:{p['card']}; }}
 
-/* buttons: primary = solid ink, secondary = hairline; pill-rounded */
+/* buttons: primary = accent, secondary = hairline */
 .stButton button, .stDownloadButton button {{ border-radius: 999px !important; font-weight:600; }}
-.stButton button[kind="primary"] {{ background:{p['ink']} !important; color:{p['bg']} !important;
-    border:1px solid {p['ink']} !important; }}
+.stButton button[kind="primary"] {{ background:{p['accent']} !important; color:#fff !important;
+    border:1px solid {p['accent']} !important; }}
 .stButton button[kind="secondary"] {{ background:{p['panel']}; color:{p['ink']};
     border:1px solid {p['border']}; }}
-.stButton button[kind="secondary"]:hover {{ border-color:{p['ink']}; }}
-.stTabs [data-baseweb="tab-highlight"] {{ background:{p['ink']}; }}
+.stButton button[kind="secondary"]:hover {{ border-color:{p['accent']}; color:{p['accent']}; }}
+.stTabs [data-baseweb="tab-highlight"] {{ background:{p['accent']}; }}
+.stTabs [aria-selected="true"] {{ color:{p['accent']} !important; }}
 
-/* brand wordmark — mono, tight grotesk */
-.brand {{ font-size: 2.2rem; font-weight: 800; letter-spacing:-0.03em; line-height:1.05;
+/* masthead */
+.brand {{ font-size: 2.5rem; font-weight: 700; letter-spacing:-0.01em; line-height:1;
          color: {p['ink']}; margin: 0; }}
-.brand .chief {{ color: {p['ink']}; }}
-.brand .dot {{ color: {p['ink']}; }}
-.tagline {{ color: {p['muted']}; font-size: 0.95rem; margin: 4px 0 2px; }}
-.warn {{ font-size:.72rem; color:{p['muted']}; background:{p['warn_bg']};
-         border:1px solid {p['warn_bd']}; border-radius:999px;
-         padding:3px 12px; display:inline-block; margin-top:6px; }}
+.brand .dot {{ color: {p['accent']}; }}
+.tagline {{ color: {p['muted']}; font-size: 0.98rem; margin: 6px 0 2px; }}
+.warn {{ font-size:.72rem; font-weight:600; letter-spacing:.03em; text-transform:uppercase;
+         color:{p['accent']}; background:{p['accent_soft']};
+         border-radius:999px; padding:4px 12px; display:inline-block; margin-top:8px; }}
+.sechead{{font-weight:700; letter-spacing:-0.01em; font-size:1.5rem; color:{p['ink']};
+         margin:1.4rem 0 .7rem;}}
+.kpi{{color:{p['muted']}; font-size:.85rem; margin-bottom:.6rem;}}
 
-/* result cards — image-forward, clean */
-.card{{display:flex; gap:16px; align-items:flex-start;
-      border:1px solid {p['border']}; border-radius:16px; padding:12px 14px;
-      margin-bottom:12px; background:{p['card']};}}
-.thumb-wrap{{position:relative; width:128px; height:128px; flex:0 0 128px;
+/* ── magazine grid card ── */
+.pcard{{border:1px solid {p['border']}; border-radius:16px; overflow:hidden;
+       background:{p['card']}; margin-bottom:4px; transition:box-shadow .15s, transform .15s;
+       box-shadow:0 1px 2px rgba(0,0,0,.04);}}
+.pcard:hover{{box-shadow:0 10px 26px rgba(0,0,0,.10); transform:translateY(-2px);}}
+.pthumb{{position:relative; width:100%; aspect-ratio:16/10; overflow:hidden; background:{p['thumb']};}}
+.pthumb img{{width:100%; height:100%; object-fit:cover; display:block;}}
+.pph{{position:absolute; inset:0; display:flex; align-items:flex-end; padding:12px;
+     background:linear-gradient(135deg, {p['accent_soft']}, {p['thumb']});}}
+.pph b{{font-family:Georgia,serif; font-size:1.1rem; color:{p['muted']}; line-height:1.2;}}
+.pribbon{{position:absolute; top:10px; left:10px; background:{p['accent']}; color:#fff;
+         font-size:.66rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+         padding:3px 9px; border-radius:999px;}}
+.pbody{{padding:12px 14px 14px;}}
+.ptitle{{font-weight:700; font-size:1.06rem; line-height:1.25; color:{p['ink']};
+        margin:0 0 6px; letter-spacing:-0.01em;}}
+.ptitle a{{color:inherit; text-decoration:none;}}
+.pmeta{{margin:2px 0;}}
+.psnip{{color:{p['muted']}; font-size:.85rem; line-height:1.5; margin:8px 0 4px;}}
+
+/* tag chips */
+.tag{{display:inline-block; font-size:.7rem; font-weight:600; padding:3px 9px;
+     border-radius:999px; background:{p['chip']}; color:{p['reg_fg']};
+     margin:0 5px 5px 0; border:1px solid {p['border']}; white-space:nowrap;}}
+.tag-acc{{background:{p['accent_soft']}; color:{p['accent']}; border-color:{p['accent_soft']};}}
+.tag-open{{color:{p['green']}; border-color:{p['green']}; background:transparent;}}
+.tag-rate{{background:{p['ink']}; color:{p['bg']}; border-color:{p['ink']};}}
+.tag-ai{{opacity:.85; font-style:italic;}}
+
+/* legacy classes kept (list card / contact / rec / hero) restyled to match */
+.card{{display:flex; gap:16px; align-items:flex-start; border:1px solid {p['border']};
+      border-radius:16px; padding:12px 14px; margin-bottom:12px; background:{p['card']};}}
+.thumb-wrap{{position:relative; width:120px; height:120px; flex:0 0 120px;
             border-radius:12px; overflow:hidden; background:{p['thumb']};}}
 .thumb, .thumb-ph{{position:absolute; inset:0; width:100%; height:100%;}}
 .thumb{{object-fit:cover;}}
-.thumb-ph{{display:flex; align-items:center; justify-content:center;
-          font-size:2.2rem; color:{p['muted']}; filter:grayscale(1);}}
-.card .body{{flex:1; min-width:0;}}
-.card h4{{margin:0 0 6px 0; font-weight:700; font-size:1.05rem; color:{p['ink']};
-         letter-spacing:-0.01em;}}
-.badge{{display:inline-block; font-size:.7rem; font-weight:500; padding:2px 9px;
-       border-radius:999px; background:{p['chip']}; color:{p['muted']};
-       margin:0 6px 5px 0; border:1px solid {p['border']};}}
-.badge-reg{{background:{p['reg_bg']}; color:{p['reg_fg']};}}
-.badge-geo{{background:{p['geo_bg']}; color:{p['ink']};}}
-.snippet{{color:{p['muted']}; font-size:.9rem; line-height:1.55; margin:6px 0;}}
-.src a{{font-size:.8rem; color:{p['ink']}; text-decoration:none; font-weight:600;
-       border-bottom:1px solid {p['border']};}}
+.thumb-ph{{display:flex; align-items:center; justify-content:center; font-size:.8rem;
+          color:{p['muted']}; text-align:center; padding:6px;}}
+.card .body{{flex:1; min-width:0;}} .card h4{{margin:0 0 6px; font-weight:700; font-size:1.05rem;}}
+.badge{{display:inline-block; font-size:.7rem; font-weight:600; padding:3px 9px;
+       border-radius:999px; background:{p['chip']}; color:{p['reg_fg']};
+       margin:0 5px 5px 0; border:1px solid {p['border']};}}
+.badge-reg{{background:{p['accent_soft']}; color:{p['accent']}; border-color:{p['accent_soft']};}}
+.badge-geo{{background:{p['geo_bg']}; color:{p['green']};}}
+.snippet{{color:{p['muted']}; font-size:.88rem; line-height:1.55; margin:6px 0;}}
+.src a{{font-size:.8rem; color:{p['accent']}; text-decoration:none; font-weight:600;}}
 .answer{{border:1px solid {p['border']}; background:{p['ans_bg']}; border-radius:14px;
         padding:14px 18px; color:{p['ink']};}}
 [data-testid="stVerticalBlockBorderWrapper"]{{border-color:{p['border']} !important;
     border-radius:16px; background:{p['card']};}}
-[data-testid="stChatMessage"]{{background:{p['card']}; border:1px solid {p['border']};
-    border-radius:14px;}}
+[data-testid="stChatMessage"]{{background:{p['card']}; border:1px solid {p['border']}; border-radius:14px;}}
 [data-testid*="Avatar"], [data-testid*="chatAvatarIcon"] {{ display:none !important; }}
 [data-testid="stChatMessage"] {{ gap:0 !important; }}
-.sechead{{font-weight:800; letter-spacing:-0.02em; font-size:1.35rem; color:{p['ink']};
-         margin:1.1rem 0 .5rem;}}
-.kpi{{color:{p['muted']}; font-size:.85rem; margin-bottom:.6rem;}}
-.stars{{color:{p['ink']}; letter-spacing:1px;}}
-/* GPT-style hero prompt suggestions */
-.hero-h{{font-weight:800; font-size:1.9rem; letter-spacing:-0.03em; color:{p['ink']};
-        text-align:center; margin:1.4rem 0 .3rem;}}
+.stars{{color:{p['accent']}; letter-spacing:1px;}}
+.hero-h{{font-weight:700; font-size:2.2rem; letter-spacing:-0.01em; color:{p['ink']};
+        text-align:center; margin:1.6rem 0 .3rem;}}
 .hero-s{{color:{p['muted']}; text-align:center; margin-bottom:1.1rem;}}
-/* location + contact block on cards */
 .contact{{font-size:.8rem; color:{p['muted']}; line-height:1.55; margin-top:6px;}}
-.contact a{{color:{p['ink']}; text-decoration:none; border-bottom:1px solid {p['border']};}}
-/* EatWhatGPT recommendation cards */
+.contact a{{color:{p['accent']}; text-decoration:none;}}
 .rec{{border:1px solid {p['border']}; border-radius:14px; padding:12px 15px;
      margin:9px 0; background:{p['card']};}}
 .rec-h{{font-weight:700; font-size:1.06rem; letter-spacing:-0.01em; color:{p['ink']};}}
-.rec-h .rank{{color:{p['muted']}; font-weight:800; margin-right:6px;}}
+.rec-h .rank{{color:{p['accent']}; font-weight:800; margin-right:6px;}}
 .chips{{margin:5px 0 2px;}}
 .rec-intro{{color:{p['ink']}; margin:2px 0 8px; line-height:1.6;}}
 </style>
@@ -301,26 +375,24 @@ def render_account():
 if "user"not in st.session_state:
     st.session_state.user = None
 
-with st.sidebar:
-    render_account()
-    st.divider()
-    mode = st.radio("Appearance", ["Light", "Dark"], horizontal=True, key="theme",
-                    format_func=lambda m: "Light"if m == "Light"else "Dark")
+# ── top bar (replaces the sidebar): masthead · theme · account ───────────────
+_tl, _tr = st.columns([3, 1], vertical_alignment="top")
+with _tr:
+    mode = st.radio("Theme", ["Light", "Dark"], horizontal=True, key="theme",
+                    label_visibility="collapsed")
 PAL = THEME[mode]
 st.markdown(build_css(PAL), unsafe_allow_html=True)
-personal.use(st.session_state.user) # scope saved places / reviews to the member
+personal.use(st.session_state.user)      # scope saved places / reviews to the member
 USER = st.session_state.user
 DISPLAY = auth.display_name(USER) if USER else "guest"
-
-
-# ── header ───────────────────────────────────────────────────────────────────
-st.markdown(
-    "<div class='brand'>Autonom</div>"
-    "<div class='tagline'>Your food guide for Malaysia &amp; Singapore — ask it "
-    "anything, grounded in a curated list of real places.</div>"
+_tl.markdown(
+    "<div class='brand'>Autonom<span class='dot'>.</span></div>"
+    "<div class='tagline'>Your food guide for Malaysia &amp; Singapore — real "
+    "places, richly tagged and searchable.</div>"
     "<div class='warn'>Curated · Member-reviewed · No scraping</div>",
-    unsafe_allow_html=True,
-)
+    unsafe_allow_html=True)
+with _tr:
+    render_account()
 st.write("")
 
 coll = _collection()
@@ -329,58 +401,39 @@ PREFS = personal.get_prefs()
 SAVED = personal.saved_urls()
 NOW = dt.datetime.now(dt.timezone.utc)
 
-with st.sidebar:
-    st.divider()
-    st.subheader("Location")
-    # region options are whatever's actually in the corpus (grows with ASEAN)
-    _present = [r for r, _ in stats["regions"].most_common() if r]
-    _reg_opts = ["All"] + sorted(_present) if _present else ["All", "MY", "SG"]
-    region = st.selectbox("Country / region", _reg_opts,
+# ── filter bar (replaces the sidebar filters) ────────────────────────────────
+_present = [r for r, _ in stats["regions"].most_common() if r]
+_reg_opts = ["All"] + sorted(_present) if _present else ["All", "MY", "SG"]
+_fb = st.columns([1.1, 1.5, 1.6, 1.3, 1.2])
+region = _fb[0].selectbox("Region", _reg_opts,
                           index=_reg_opts.index(PREFS["region"])
                           if PREFS.get("region") in _reg_opts else 0,
-                          format_func=lambda r: REGION_LABEL.get(r, r) if r != "All"else "All")
-    area = st.text_input("State / city / district", value=PREFS.get("city", ""),
-                         placeholder="e.g. Penang · Bangsar · Ipoh · Thonglor")
-    if st.button("Save as my home", use_container_width=True):
+                          format_func=lambda r: REGION_LABEL.get(r, r) if r != "All" else "All")
+area = _fb[1].text_input("District / city", value=PREFS.get("city", ""),
+                         placeholder="Bangsar · Penang · Tiong Bahru")
+cuisine = _fb[2].text_input("Cuisine / dish",
+                            placeholder="laksa · omakase · nasi lemak")
+acc_sel = _fb[3].selectbox("Accolade", facets.ACCOLADE_OPTS, index=0)
+price_sel = _fb[4].selectbox("Price", facets.PRICE_OPTS, index=0)
+with st.expander("More filters · location · save home"):
+    _mc = st.columns([1.6, 1.2, 1, 1])
+    _ft_opts = ["All"] + facet_options(stats["total"])
+    ft_sel = _mc[0].selectbox("Food type", _ft_opts, index=0)
+    near_str = _mc[1].text_input("Near me (lat, lng)", value=PREFS.get("latlng", ""),
+                                 placeholder="3.139, 101.687")
+    radius_km = _mc[2].slider("Radius (km)", 1, 50, 10)
+    k = _mc[3].slider("Results", 3, 12, 6)
+    _sb1, _sb2, _ = st.columns([1, 1, 3])
+    if _sb1.button("Save as my home", use_container_width=True):
         personal.set_prefs(region=region, city=area.strip())
         st.toast(f"Home set to {area.strip() or region}")
         st.rerun()
-
-    st.divider()
-    st.subheader("Cuisine / dish")
-    cuisine = st.text_input("Cuisine or dish", label_visibility="collapsed",
-                            placeholder="e.g. laksa · dim sum · omakase · nasi lemak")
-
-    st.divider()
-    st.subheader("Filters")
-    acc_sel = st.selectbox("Accolade", facets.ACCOLADE_OPTS, index=0,
-                           help="MICHELIN tier, from the curated Accolades field.")
-    price_sel = st.selectbox("Price (per pax)", facets.PRICE_OPTS, index=0,
-                             help="Normalised from each place's price guide.")
-    _ft_opts = ["All"] + facet_options(stats["total"])
-    ft_sel = st.selectbox("Food type", _ft_opts, index=0,
-                          help="The curated food-type taxonomy from the Eat List.")
-    if acc_sel != "Any"or price_sel != "Any"or ft_sel != "All":
-        st.caption(f"Filtering by "
-                   + " · ".join(x for x in (acc_sel if acc_sel != "Any"else "",
-                                            price_sel if price_sel != "Any"else "",
-                                            ft_sel if ft_sel != "All"else "") if x))
-
-    st.divider()
-    st.subheader("Near me")
-    near_str = st.text_input("lat, lng", value=PREFS.get("latlng", ""),
-                             placeholder="3.1390, 101.6869")
-    radius_km = st.slider("Radius (km)", 1, 50, 10)
-    if st.button("Save my location", use_container_width=True):
+    if _sb2.button("Save my location", use_container_width=True):
         personal.set_prefs(latlng=near_str.strip())
         st.toast("Location saved")
-
-    st.divider()
-    k = st.slider("Results", 3, 12, 6)
-    if query.has_api_key():
-        st.caption("Claude answers on")
-    else:
-        st.caption("No API key — ranked snippets")
+    st.caption("Claude answers on" if query.has_api_key()
+               else "No API key — ranked snippets")
+st.write("")
 
 chat_tab, home_tab, find_tab, map_tab, mylist_tab, contribute_tab, add_tab = st.tabs(
     ["Ask", "Discover", "Find", "Map", "My list",
@@ -420,7 +473,7 @@ def contact_html(a) ->str:
 
 
 def rec_html(hit, rank_no) ->str:
-    """A styled EatWhatGPT recommendation card: title · reason chips · contact."""
+    """A styled Makan Kaki recommendation card: title · reason chips · contact."""
     m = hit["meta"]
     title = m.get("title", "") or "—"
     maps = m.get("maps", "")
@@ -444,7 +497,117 @@ def card_from_hit(h):
             "hours": m.get("hours", ""), "maps": m.get("maps", ""),
             "price": m.get("price", ""), "accolades": m.get("accolades", ""),
             "rating": m.get("rating", 0), "order": m.get("order", ""),
-            "cuisine": m.get("cuisine", "")}
+            "cuisine": m.get("cuisine", ""), "food_type": m.get("food_type", "")}
+
+
+_BAD_CITY = {"", "(state not stated)", "(city not stated)", "-"}
+
+
+def place_tags(a) -> list:
+    """Full, NEVER-empty tag set for an entry: region · district · setting ·
+    price · accolade · rating · open-now · meal. Fills gaps from deterministic
+    rules, then the cached GenAI tags, then a generic fallback. Returns
+    (label, css_class) chips."""
+    ai = ai_tags.get(a)
+    chips = []
+    reg = a.get("region", "")
+    chips.append((REGION_LABEL.get(reg, reg) or "Asia", "tag-acc"))
+    dist = tags.district(a) or (a.get("city") if a.get("city", "").lower() not in _BAD_CITY else "") \
+        or ai.get("district", "")
+    if dist:
+        chips.append((dist, "tag"))
+    setg = tags.setting(a) or a.get("cuisine") or ai.get("cuisine") or ai.get("setting") \
+        or a.get("food_type") or "Eatery"
+    chips.append((setg[:26], "tag"))
+    for dish in (ai.get("dishes") or [])[:2]:
+        if dish:
+            chips.append((dish[:22], "tag tag-ai"))
+    band = facets.price_band(a)
+    if band:
+        chips.append((band, "tag"))
+    tier = facets.accolade_tier(a)
+    if tier:
+        chips.append((a.get("accolades") or tier, "tag-acc"))
+    try:
+        rt = float(a.get("rating") or 0)
+    except (TypeError, ValueError):
+        rt = 0
+    if rt:
+        chips.append((f"★ {rt:g}", "tag-rate"))
+    state = recommender.open_state(a.get("hours", "") or "")
+    if state == "open":
+        chips.append(("Open now", "tag-open"))
+    meal = tags.meal(a)
+    if meal:
+        chips.append((meal, "tag"))
+    return chips
+
+
+def chips_html(a) -> str:
+    return "".join(f"<span class='{cls}'>{lbl}</span>" for lbl, cls in place_tags(a))
+
+
+def is_thin(a) -> bool:
+    """Low-confidence entry — worth asking a member to verify/complete."""
+    return not (a.get("address") or "").strip() and not (a.get("hours") or "").strip()
+
+
+def _place_label(a) -> str:
+    return (a.get("cuisine") or tags.setting(a) or ai_tags.get(a).get("cuisine")
+            or REGION_LABEL.get(a.get("region", ""), "Autonom") or "Autonom")
+
+
+def thumb_inner(a) -> str:
+    """Inner of the grid thumbnail — real photo if present, else placeholder tile."""
+    img = community.served_url(a.get("image", "")) if a.get("image") else ""
+    if img:
+        return f"<img src='{img}' loading='lazy' onerror=\"this.style.display='none'\"/>"
+    return f"<div class='pph'><b>{_place_label(a)[:28]}</b></div>"
+
+
+def card_html(a) -> str:
+    url = a.get("url", "")
+    acc = facets.accolade_tier(a)
+    ribbon = f"<div class='pribbon'>{acc}</div>" if acc in facets._MICHELIN else ""
+    title = a.get("title", "") or "—"
+    tlink = (f"<a href='{url}' target='_blank'>{title}</a>"
+             if str(url).startswith("http") else title)
+    return (f"<div class='pcard'><div class='pthumb'>{ribbon}{thumb_inner(a)}</div>"
+            f"<div class='pbody'><div class='ptitle'>{tlink}</div>"
+            f"<div class='pmeta'>{chips_html(a)}</div>{contact_html(a)}</div></div>")
+
+
+def _toggle_save(a):
+    url = a.get("url", "")
+    if url in SAVED:
+        personal.remove_place(url)
+    else:
+        personal.upsert_place(url, title=a.get("title", ""), source=a.get("source", ""),
+                              region=a.get("region", ""), city=a.get("city", ""),
+                              image=a.get("image", ""), status="want", ts=NOW.isoformat())
+
+
+def render_grid(items, key_prefix, cols=3):
+    """Image-forward magazine grid; each card has Save (+ Verify when thin)."""
+    for i in range(0, len(items), cols):
+        for col, a in zip(st.columns(cols), items[i:i + cols]):
+            with col:
+                st.markdown(card_html(a), unsafe_allow_html=True)
+                kk = f"{key_prefix}_{i}_{(a.get('title') or '')[:10]}"
+                saved = a.get("url", "") in SAVED
+                if is_thin(a):
+                    b1, b2 = st.columns(2)
+                    if b1.button("Saved" if saved else "Save", key=f"gsv_{kk}",
+                                 use_container_width=True):
+                        _toggle_save(a)
+                        st.rerun()
+                    if b2.button("Verify", key=f"gvf_{kk}", use_container_width=True):
+                        st.session_state["verify_place"] = a.get("title", "")
+                        st.toast("Add the details under Contribute to verify this listing.")
+                elif st.button("Saved" if saved else "Save", key=f"gsv_{kk}",
+                               use_container_width=True):
+                    _toggle_save(a)
+                    st.rerun()
 
 
 def facets_active() ->bool:
@@ -465,23 +628,15 @@ def render_card(a, key):
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 5, 1.3], vertical_alignment="center")
         c1.markdown(_thumb(a.get("image", "")), unsafe_allow_html=True)
-        bits = []
-        if a.get("dist") is not None:
-            bits.append(f"<span class='badge badge-geo'>{a['dist']:.1f} km</span>")
-        if a.get("ts"):
-            bits.append(f"<span class='badge'>{ago(a['ts'])}</span>")
-        reg = a.get("region", "")
-        bits.append(f"<span class='badge badge-reg'>{REGION_LABEL.get(reg, reg) or '—'}</span>")
-        if a.get("city"):
-            bits.append(f"<span class='badge'>{a['city']}</span>")
-        bits.append(f"<span class='badge'>{a.get('source','')}</span>")
-        text = (a.get("text", "") or "")[:260]
-        src_line = (f"<div class=' src'><a href='{url}' target='_blank'>{url}</a></div>"
+        dist_chip = (f"<span class='tag tag-open'>{a['dist']:.1f} km</span>"
+                     if a.get("dist") is not None else "")
+        text = (a.get("text", "") or "")[:240]
+        src_line = (f"<div class='src'><a href='{url}' target='_blank'>{url}</a></div>"
                     if str(url).startswith("http") else "")
         c2.markdown(
             f"<div class='body'><h4><a href='{url}' target='_blank'"
             f"style='color:inherit;text-decoration:none'>{a.get('title','')}</a></h4>"
-            f"{''.join(bits)}<div class='snippet'>{text}…</div>"
+            f"{dist_chip}{chips_html(a)}<div class='snippet'>{text}…</div>"
             f"{contact_html(a)}{src_line}</div>",
             unsafe_allow_html=True)
         if c3.button("Saved"if saved else "Save", key=f"sv_{key}",
@@ -565,35 +720,20 @@ with home_tab:
                                     f"<span style='color:{PAL['muted']}'>· {ago(p['ts'])}"
                                     f"</span></div>", unsafe_allow_html=True)
 
-        auth_picks = [a for a in arts if a["source"] == "Authority"][:6]
-        if auth_picks:
-            st.markdown("<div class='sechead'>Michelin &amp; authority picks</div>",
-                        unsafe_allow_html=True)
-            for j, a in enumerate(auth_picks):
-                render_card(a, f"auth_{j}")
-
-        st.markdown("<div class='sechead'>Fresh finds</div>", unsafe_allow_html=True)
-        dated = [a for a in arts if a["ts"] and a["source"] != "Authority"]
-        undated = [a for a in arts if not a["ts"] and a["source"] != "Authority"]
-        buckets = [("This week", 0, 7), ("This month", 7, 30), ("Earlier", 30, 10 ** 9)]
-        shown, LIMIT = 0, 24
-        for label, lo, hi in buckets:
-            grp = [a for a in dated if lo <= (NOW - a["ts"]).days < hi][:LIMIT - shown]
-            if not grp:
-                continue
-            st.markdown(f"**{label}**")
-            for j, a in enumerate(grp):
-                render_card(a, f"fresh_{shown + j}")
-            shown += len(grp)
-            if shown >= LIMIT:
-                break
-        if shown == 0 and undated: # no parseable dates just show some
-            for j, a in enumerate(undated[:LIMIT]):
-                render_card(a, f"undated_{j}")
+        # ── the browse grid (rich, image-forward magazine cards) ────────────
+        bcards, btotal = browse_cards(stats["total"], region, area, cuisine,
+                                      acc_sel, price_sel, ft_sel, 24)
+        st.markdown("<div class='sechead'>Browse the guide</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi'>{btotal} places match · showing {len(bcards)} "
+                    "· sorted by accolade &amp; rating</div>", unsafe_allow_html=True)
+        if not bcards:
+            st.info("No places match these filters — widen the region / cuisine up top.")
+        else:
+            render_grid(bcards, "browse", cols=3)
 
 
-# ── tab: EatWhatGPT (conversational recommender) ─────────────────────────────
-REC_SYSTEM = ("You are EatWhatGPT, a decisive local food concierge for Malaysia "
+# ── tab: Makan Kaki (conversational recommender) ─────────────────────────────
+REC_SYSTEM = ("You are Makan Kaki, a decisive local food concierge for Malaysia "
               "and Singapore. Using ONLY the numbered places provided (already "
               "ranked for the user), write 2-3 warm sentences that recommend the "
               "top one or two and say why — dish, accolade, vibe or value. Don't "
@@ -615,7 +755,7 @@ with chat_tab:
     st.session_state.setdefault("chat", [])
 
     if not st.session_state.chat:
-        st.markdown("<div class='hero-h'>EatWhatGPT</div>", unsafe_allow_html=True)
+        st.markdown("<div class='hero-h'>Makan Kaki</div>", unsafe_allow_html=True)
         st.markdown("<div class='hero-s'>Tell me a craving, an area or a budget — I'll "
                     "rank real places and give you the reason, contact and directions "
                     "for each.</div>", unsafe_allow_html=True)
@@ -641,7 +781,7 @@ with chat_tab:
         with st.chat_message(m["role"]):
             st.markdown(m["content"], unsafe_allow_html=True)
 
-    prompt = (st.chat_input("Ask EatWhatGPT for a recommendation…")
+    prompt = (st.chat_input("Ask Makan Kaki for a recommendation…")
               or st.session_state.pop("pending_q", None))
     if prompt:
         st.session_state.chat.append({"role": "user", "content": prompt})
@@ -1125,7 +1265,7 @@ with contribute_tab:
                 st.session_state.rv_flash = True
                 st.session_state.rv_flash_msg = (
                     f"Posted — overall {overall:g}/5. Your review is live in Today, "
-                    "Find and EatWhatGPT. Thanks for contributing.")
+                    "Find and Makan Kaki. Thanks for contributing.")
                 st.rerun()
 
         # your own reviews

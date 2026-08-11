@@ -167,7 +167,7 @@ def draft_review(notes: str, place: str = "") -> str | None:
 
 def answer(question, context, system=None):
     """Generate a cited answer with Claude, or None if no API key is available.
-    `system` overrides the default food-guide prompt (used by EatWhatGPT)."""
+    `system` overrides the default food-guide prompt (used by Makan Kaki)."""
     if not has_api_key():
         return None  # signal: fall back to raw snippets
     client = anthropic.Anthropic()
