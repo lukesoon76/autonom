@@ -19,6 +19,9 @@ if [ -d "$DISK" ] || mkdir -p "$DISK" 2>/dev/null; then
   if [ -z "$(ls -A "$DISK/chroma_db" 2>/dev/null)" ]; then
     mkdir -p "$DISK/chroma_db"
     [ -d /app/_seed_chroma ] && cp -a /app/_seed_chroma/. "$DISK/chroma_db/"
+    # stamp the seeded workbook version so cloud_sync only re-runs on real changes
+    [ -f /app/data/Master_List.xlsx ] && \
+      sha256sum /app/data/Master_List.xlsx | awk '{print $1}' > "$DISK/core_version.txt"
   fi
   rm -rf /app/chroma_db && ln -s "$DISK/chroma_db" /app/chroma_db
 fi

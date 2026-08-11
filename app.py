@@ -45,11 +45,13 @@ st.set_page_config(page_title="Autonom", page_icon="", layout="wide")
 # disk). Guarded by env + cache_resource so it runs once and never locally.
 if os.getenv("AUTONOM_CLOUD_REFRESH"):
     @st.cache_resource
-    def _cloud_scheduler():
+    def _cloud_bg():
         import cloud_refresh
-        cloud_refresh.start()
+        import cloud_sync
+        cloud_sync.start()      # refresh curated core if the bundled workbook changed
+        cloud_refresh.start()   # daily Instagram pull
         return True
-    _cloud_scheduler()
+    _cloud_bg()
 
 REGION_LABEL = {"MY": "Malaysia", "SG": "Singapore", "TH": "Thailand",
                 "ID": "Indonesia", "PH": "Philippines", "VN": "Vietnam",
