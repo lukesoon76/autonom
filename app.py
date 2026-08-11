@@ -513,6 +513,9 @@ def place_tags(a) -> list:
     chips = []
     reg = a.get("region", "")
     chips.append((REGION_LABEL.get(reg, reg) or "Asia", "tag-acc"))
+    cg = tags.cuisine_group(a)
+    if cg and cg != "Other":
+        chips.append((cg, "tag"))
     dist = tags.district(a) or (a.get("city") if a.get("city", "").lower() not in _BAD_CITY else "") \
         or ai.get("district", "")
     if dist:
