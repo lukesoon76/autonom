@@ -845,65 +845,61 @@ with chat_tab:
 
 
 with find_tab:
-    if "q"not in st.session_state:
-        st.session_state.q = ""
-    st.write("**Try:**")
-    cols = st.columns(len(EXAMPLES))
-    for c, ex in zip(cols, EXAMPLES):
-        if c.button(ex, use_container_width=True):
-            st.session_state.q = ex
+    # big search box + button
+    _sc1, _sc2 = st.columns([6, 1], vertical_alignment="bottom")
+    q = _sc1.text_input("Search", key="q", label_visibility="collapsed",
+                        placeholder="Search a dish, place or cuisine — e.g. Mala, "
+                                    "char kway teow, omakase, bak kut teh")
+    go = _sc2.button("Search", type="primary", use_container_width=True)
 
-    q = st.text_input("What are you in the mood for?",
-                      value=st.session_state.q,
-                      placeholder="where's good laksa in KL?")
-    go = st.button("Find", type="primary")
+    # Filter by · Reset
+    _fh, _rs = st.columns([6, 1])
+    _fh.markdown("**Filter by**")
+    if _rs.button("Reset", key="find_reset"):
+        for kf in ("f_loc", "f_type", "f_price", "f_rate"):
+            st.session_state.pop(kf, None)
+        st.rerun()
+    _labels = {REGION_LABEL.get(r, r): r for r in stats["regions"] if r}
+    _loc_opts = ["Any location"] + list(_labels)
+    _ff = st.columns(4)
+    f_loc = _ff[0].selectbox("Location", _loc_opts, key="f_loc", label_visibility="collapsed")
+    f_type = _ff[1].selectbox("Type", ["Any type"] + facet_options(stats["total"]),
+                              key="f_type", label_visibility="collapsed")
+    f_price = _ff[2].selectbox("Price", ["Any price"] + facets.PRICE_OPTS[1:],
+                               key="f_price", label_visibility="collapsed")
+    f_rate = _ff[3].selectbox("Rating", ["Any rating", "4.0+", "4.3+", "4.5+"],
+                              key="f_rate", label_visibility="collapsed")
 
-    if go and q.strip():
-        reg = None if region == "All"else region
-        near = None
-        if near_str.strip():
-            try:
-                _la, _ln = near_str.split(",")
-                near = (float(_la), float(_ln))
-            except ValueError:
-                st.warning('“Near me” must look like `3.1390, 101.6869` — ignoring it.')
+    if q.strip() or go:
+        reg = _labels.get(f_loc)                      # None unless a region picked
         with st.spinner("Searching…"):
-            hits = query.retrieve(q, k=k * 4 if facets_active() else k, region=reg,
-                                  contains=[area, cuisine], embedder=_embedder(),
-                                  coll=coll, near=near,
-                                  radius_km=radius_km if near else None)
-            hits = apply_facets(hits)[:k]
-        if near and not hits:
-            st.info("No geo-tagged places within that radius. Widen the radius, or "
-                    "run `enrich_geo.py` to add coordinates.")
-        if not hits:
-            st.warning("No matches — try widening the filters or ingesting more sources.")
+            hits = query.retrieve(q or "great food", k=120, region=reg,
+                                  embedder=_embedder(), coll=coll)
+        min_rate = {"4.0+": 4.0, "4.3+": 4.3, "4.5+": 4.5}.get(f_rate, 0)
+        cards, seen = [], set()
+        for h in hits:
+            m = h["meta"]
+            if f_type != "Any type" and (m.get("food_type") or "") != f_type:
+                continue
+            if f_price != "Any price" and facets.price_band(m) != f_price:
+                continue
+            try:
+                if min_rate and float(m.get("rating") or 0) < min_rate:
+                    continue
+            except (TypeError, ValueError):
+                if min_rate:
+                    continue
+            key = ((m.get("title") or "").lower(), (m.get("city") or "").lower())
+            if not m.get("title") or key in seen:
+                continue
+            seen.add(key)
+            cards.append(card_from_hit(h))
+        if not cards:
+            st.info("No matches — try a different term or hit Reset on the filters.")
         else:
-            if query.has_api_key():
-                context, _ = query.build_context(hits)
-                reply = None
-                try:
-                    with st.spinner("Asking Claude (grounded only in these snippets)…"):
-                        reply = query.answer(q, context)
-                except Exception as e:
-                    st.warning(f"Couldn't generate a written answer ({type(e).__name__}: "
-                               f"{e}). Showing ranked snippets instead.")
-                if reply:
-                    st.markdown("### Recommendation")
-                    st.markdown(f"<div class='answer'>{reply}</div>", unsafe_allow_html=True)
-                    st.divider()
-            st.markdown(f"### {len(hits)} sources")
-            for i, h in enumerate(hits):
-                render_card(card_from_hit(h), f"find_{i}")
-
-            seen, lines = set(), []
-            for h in hits:
-                u = h["meta"].get("url", "")
-                if u and u not in seen:
-                    seen.add(u)
-                    lines.append(f"- [{h['meta'].get('source','')}]({u})")
-            with st.expander("Sources (de-duplicated)"):
-                st.markdown("\n".join(lines))
+            st.markdown(f"<div class='kpi'>{len(cards)} results</div>",
+                        unsafe_allow_html=True)
+            render_grid(cards[:24], "find", cols=3)
 
 
 # ── tab: Map (whole corpus on a map, filtered by sidebar) ────────────────────
