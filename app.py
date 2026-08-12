@@ -941,6 +941,12 @@ with find_tab:
         with st.spinner("Searching…"):
             hits = query.retrieve(q or "great food", k=120, region=reg,
                                   embedder=_embedder(), coll=coll)
+        # keyword boost: float exact title/text matches above loose semantic drift
+        _qw = [w for w in q.lower().split() if len(w) > 2]
+        if _qw:
+            hits.sort(key=lambda h: sum(
+                w in (f"{h['meta'].get('title', '')} {h.get('doc', '')}").lower()
+                for w in _qw), reverse=True)
         min_rate = {"4.0+": 4.0, "4.3+": 4.3, "4.5+": 4.5}.get(f_rate, 0)
         cards, seen = [], set()
         for h in hits:
