@@ -623,10 +623,10 @@ def _toggle_save(a):
 def render_grid(items, key_prefix, cols=3):
     """Image-forward magazine grid; each card has Save (+ Verify when thin)."""
     for i in range(0, len(items), cols):
-        for col, a in zip(st.columns(cols), items[i:i + cols]):
+        for j, (col, a) in enumerate(zip(st.columns(cols), items[i:i + cols])):
             with col:
                 st.markdown(card_html(a), unsafe_allow_html=True)
-                kk = f"{key_prefix}_{i}_{(a.get('title') or '')[:10]}"
+                kk = f"{key_prefix}_{i + j}"          # globally unique per card
                 saved = a.get("url", "") in SAVED
                 if is_thin(a):
                     b1, b2 = st.columns(2)

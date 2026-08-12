@@ -20,6 +20,8 @@ services:
         value: "1"
       - key: AUTONOM_REFRESH_HOUR_UTC
         value: "22"              # 22:00 UTC ≈ 06:00 MYT
+      - key: AUTONOM_REFRESH_ON_BOOT
+        value: "1"               # also warm ~90s after each deploy (photos fill fast)
       - key: IG_ACCESS_TOKEN     # long-lived Graph API token (from ig_setup.py)
         sync: false
       - key: IG_USER_ID          # your IG Business account id
