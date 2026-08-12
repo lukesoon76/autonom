@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Autonom — Streamlit UI for the FoodRAG "where to eat"system.
+Makanapa — Streamlit UI for the FoodRAG "where to eat"system.
 
     streamlit run app.py
 
@@ -41,7 +41,7 @@ import tags
 import util
 from util import ago, parse_pub
 
-st.set_page_config(page_title="Autonom", page_icon="", layout="wide")
+st.set_page_config(page_title="Makanapa", page_icon="", layout="wide")
 
 # Cloud (Render): start the once-a-day Instagram refresh inside the web process
 # — the only way to update the disk-backed store (Render crons can't mount the
@@ -299,9 +299,13 @@ button[title="Open sidebar"], button[title="Close sidebar"] {{ display:none !imp
          padding:3px 9px; border-radius:999px;}}
 .pbody{{padding:12px 14px 14px;}}
 .ptitle{{font-weight:700; font-size:1.06rem; line-height:1.25; color:{p['ink']};
-        margin:0 0 6px; letter-spacing:-0.01em;}}
+        margin:0 0 6px; letter-spacing:-0.01em; min-height:2.5em;
+        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+        overflow:hidden;}}
 .ptitle a{{color:inherit; text-decoration:none;}}
-.pmeta{{margin:2px 0;}}
+.pmeta{{margin:2px 0; height:3.5em; overflow:hidden;}}
+.pdir{{margin-top:8px;}} .pdir a{{color:{p['accent']}; font-size:.8rem;
+      font-weight:600; text-decoration:none;}}
 .psnip{{color:{p['muted']}; font-size:.85rem; line-height:1.5; margin:8px 0 4px;}}
 
 /* tag chips */
@@ -402,7 +406,7 @@ personal.use(st.session_state.user)      # scope saved places / reviews to the m
 USER = st.session_state.user
 DISPLAY = auth.display_name(USER) if USER else "guest"
 _tl.markdown(
-    "<div class='brand'>Autonom<span class='dot'>.</span></div>"
+    "<div class='brand'>Makanapa<span class='dot'>.</span></div>"
     "<div class='tagline'>Your food guide for Malaysia &amp; Singapore — real "
     "places, richly tagged and searchable.</div>"
     "<div class='warn'>Curated · Member-reviewed · No scraping</div>",
@@ -581,7 +585,7 @@ def is_thin(a) -> bool:
 
 def _place_label(a) -> str:
     return (a.get("cuisine") or tags.setting(a) or ai_tags.get(a).get("cuisine")
-            or REGION_LABEL.get(a.get("region", ""), "Autonom") or "Autonom")
+            or REGION_LABEL.get(a.get("region", ""), "Makanapa") or "Makanapa")
 
 
 def card_image(a) -> str:
@@ -605,9 +609,12 @@ def card_html(a) -> str:
     title = a.get("title", "") or "—"
     tlink = (f"<a href='{url}' target='_blank'>{title}</a>"
              if str(url).startswith("http") else title)
+    maps = a.get("maps", "")
+    directions = (f"<div class='pdir'><a href='{maps}' target='_blank'>Directions</a></div>"
+                  if maps else "")
     return (f"<div class='pcard'><div class='pthumb'>{ribbon}{thumb_inner(a)}</div>"
             f"<div class='pbody'><div class='ptitle'>{tlink}</div>"
-            f"<div class='pmeta'>{chips_html(a)}</div>{contact_html(a)}</div></div>")
+            f"<div class='pmeta'>{chips_html(a)}</div>{directions}</div></div>")
 
 
 def _toggle_save(a):
@@ -774,10 +781,10 @@ with home_tab:
         st.info("Nothing here yet for this city. Widen the filter, or add a feed "
                 "under **Add a source**.")
     else:
-        # Featured Autonoms — top contributors + their recent posts
+        # Featured Makanapas — top contributors + their recent posts
         feat = community.featured_contributors(arts, top=6)
         if feat:
-            st.markdown("<div class='sechead'>Featured Autonoms</div>",
+            st.markdown("<div class='sechead'>Featured Makanapas</div>",
                         unsafe_allow_html=True)
             fcols = st.columns(2)
             for i, c in enumerate(feat):
@@ -1226,7 +1233,7 @@ with contribute_tab:
     st.markdown("<div class='sechead'>Share a dining experience</div>",
                 unsafe_allow_html=True)
     if not USER:
-        st.info("Sign in (sidebar) to post your reviews as an **Autonom** "
+        st.info("Sign in (sidebar) to post your reviews as an **Makanapa** "
                 "— they'll appear in Today, Find and Featured.")
     else:
         if st.session_state.pop("rv_flash", None):
@@ -1234,7 +1241,7 @@ with contribute_tab:
         st.caption(f"Posting as **{DISPLAY}**")
 
         # ── AI writing assistant (CHAIZEN-style) ─────────────────────────────
-        with st.expander("✎ Autonom AI — turn your notes into a review draft"):
+        with st.expander("✎ Makanapa AI — turn your notes into a review draft"):
             st.caption("Jot the highlights, one per line. I'll write the review; "
                        "you can edit it below before posting.")
             notes = st.text_area("Highlights", key="rv_bullets", label_visibility="collapsed",
@@ -1520,7 +1527,7 @@ with add_tab:
     st.markdown("### Instagram sources (Graph API)")
     st.caption("Auto-ingest recent posts from **Business/Creator** food-blogger "
                "handles and hashtags via Instagram's **official Graph API** — "
-               "captions are parsed into the Master List, then synced to Autonom. "
+               "captions are parsed into the Master List, then synced to Makanapa. "
                "No scraping, ToS-respecting. A daily job runs at 06:00; you can "
                "also run it on demand below.")
 
@@ -1566,11 +1573,11 @@ with add_tab:
                         capture_output=True, text=True, timeout=600)
         st.code((p.stdout or "") + (p.stderr or ""), language="text")
         if p.returncode == 0:
-            with st.spinner("Syncing new posts into the Autonom core…"):
+            with st.spinner("Syncing new posts into the Makanapa core…"):
                 import import_eatlist
                 import_eatlist.run(os.path.expanduser(
                     "~/eatlist/Asia_Eateries_Master_List.xlsx"))
             load_articles.clear()
-            st.success("Done — new Instagram posts are live in Autonom.")
+            st.success("Done — new Instagram posts are live in Makanapa.")
         else:
             st.error("The Graph API run failed — see the log above.")

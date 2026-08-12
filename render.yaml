@@ -1,4 +1,4 @@
-# Render Blueprint for Autonom. Deploy via Render → New → Blueprint (point at this
+# Render Blueprint for Makanapa. Deploy via Render → New → Blueprint (point at this
 # repo), or create a Docker Web Service manually and add a disk mounted at /var/data.
 services:
   - type: web

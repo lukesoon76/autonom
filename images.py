@@ -26,7 +26,7 @@ import requests
 import ingest
 
 CACHE = os.path.join("config", "images.json")
-UA = getattr(ingest, "USER_AGENT", "Autonom/1.0 (+personal food guide)")
+UA = getattr(ingest, "USER_AGENT", "Makanapa/1.0 (+personal food guide)")
 _OG_RE = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
                     re.I)
 

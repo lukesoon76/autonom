@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Lightweight local accounts for Autonom.
+Lightweight local accounts for Makanapa.
 
 Prototype-grade auth for a personal/local app — NOT production security. Users
 are stored in config/users.json (git-ignored) with a per-user random salt and a

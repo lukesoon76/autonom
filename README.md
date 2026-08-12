@@ -1,4 +1,4 @@
-# Autonom (FoodRAG) — where to eat in Malaysia & Singapore
+# Makanapa (FoodRAG) — where to eat in Malaysia & Singapore
 
 A small, **local** retrieval-augmented "where to eat" system. It ingests
 food-blog RSS feeds and sitemaps for Kuala Lumpur and Singapore into a vector

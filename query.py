@@ -151,7 +151,7 @@ def has_api_key() -> bool:
     return anthropic is not None and bool(key) and "..." not in key
 
 
-DRAFT_SYSTEM = ("You are Autonom's review-writing assistant. Turn the member's "
+DRAFT_SYSTEM = ("You are Makanapa's review-writing assistant. Turn the member's "
                 "rough notes/bullet points into a warm, honest first-person dining "
                 "review of 3-5 short sentences. Keep their facts; don't invent "
                 "dishes, prices or claims. Plain text, no headings or emoji.")

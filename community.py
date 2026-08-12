@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Community (user-generated) content helpers: save uploaded photos and index a
-member's dining review into the SAME vector store, so Autonom members'
+member's dining review into the SAME vector store, so Makanapa members'
 posts surface in Today / Find / recommendations alongside blogs and Michelin.
 """
 import hashlib
@@ -62,7 +62,7 @@ def _rid(username: str, review_id: str) -> str:
 
 
 def source_label(display: str) -> str:
-    return f"Autonom · {display}"
+    return f"Makanapa · {display}"
 
 
 def _scores_text(review: dict) -> str:
@@ -116,7 +116,7 @@ def unembed_review(username: str, review_id: str, coll) -> None:
 
 
 def featured_contributors(articles: list[dict], top: int = 6) -> list[dict]:
-    """Top contributors ('Autonoms') by number of entries, community
+    """Top contributors ('Makanapas') by number of entries, community
     members first, each with a few of their most-recent posts."""
     counts = Counter(a["source"] for a in articles
                      if a.get("source") and a["source"] != "Authority")
@@ -125,7 +125,7 @@ def featured_contributors(articles: list[dict], top: int = 6) -> list[dict]:
         by_src.setdefault(a["source"], []).append(a)
 
     def is_member(src):
-        return str(src).startswith("Autonom")
+        return str(src).startswith("Makanapa")
 
     ranked = sorted(counts, key=lambda s: (not is_member(s), -counts[s]))
     out = []

@@ -1,6 +1,6 @@
-# Deploying Autonom on Render
+# Deploying Makanapa on Render
 
-Autonom ships as a Docker web service with a persistent disk (same shape as the
+Makanapa ships as a Docker web service with a persistent disk (same shape as the
 `lifeos` service). The embedding model + a prebuilt vector store are baked into
 the image; `start.sh` symlinks the writable state (vector store, member accounts,
 photo uploads) onto the disk so it survives redeploys.

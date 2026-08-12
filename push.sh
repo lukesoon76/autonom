@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-shot: sign in to GitHub (if needed) and push Autonom.
-# Usage:  ./push.sh          -> creates a PRIVATE repo named Autonom
+# One-shot: sign in to GitHub (if needed) and push Makanapa.
+# Usage:  ./push.sh          -> creates a PRIVATE repo named Makanapa
 #         ./push.sh public   -> creates it PUBLIC instead
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,8 +22,8 @@ if git remote get-url origin >/dev/null 2>&1; then
   echo "→ Remote 'origin' already set — pushing…"
   git push -u origin main
 else
-  echo "→ Creating repo Autonom ($VIS) and pushing…"
-  gh repo create Autonom "$VIS" --source=. --remote=origin --push
+  echo "→ Creating repo Makanapa ($VIS) and pushing…"
+  gh repo create Makanapa "$VIS" --source=. --remote=origin --push
 fi
 
 echo "✅ Done. Repo: $(gh repo view --json url -q .url 2>/dev/null || echo '(see GitHub)')"

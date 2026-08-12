@@ -1,4 +1,4 @@
-# Autonom — Streamlit food-recommendation app for Render (Docker web service).
+# Makanapa — Streamlit food-recommendation app for Render (Docker web service).
 # The embedding model and a prebuilt vector store are baked into the image so the
 # container starts fast; at runtime start.sh symlinks the writable state (vector
 # store, member accounts, uploads) onto the Render persistent disk so it survives

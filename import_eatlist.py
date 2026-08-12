@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Append the Eat List workbook (curated SG / MY / Bangkok eateries) into the
-Autonom corpus as an "Eat List" source, so those hand-verified places show
+Makanapa corpus as an "Eat List" source, so those hand-verified places show
 up in Today / Find / recommendations alongside blogs, Michelin and community
-reviews. Embeds with Autonom's current model; upserts by a stable id so
+reviews. Embeds with Makanapa's current model; upserts by a stable id so
 re-running updates rather than duplicating.
 
     python import_eatlist.py
@@ -107,6 +107,7 @@ def run(wb_path, batch=256):
     got = coll.get(include=["metadatas"])
     kill = [i for i, m in zip(got["ids"], got["metadatas"])
             if not (m.get("source") == "Authority"
+                    or str(m.get("source", "")).startswith("Makanapa")
                     or str(m.get("source", "")).startswith("Autonom")
                     or str(m.get("source", "")).startswith("Instagram"))]
     for k in range(0, len(kill), 500):
@@ -154,7 +155,7 @@ def run(wb_path, batch=256):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Append the Eat List workbook into Autonom.")
+    ap = argparse.ArgumentParser(description="Append the Eat List workbook into Makanapa.")
     ap.add_argument("--workbook", default=DEFAULT_WB)
     ap.add_argument("--batch", type=int, default=256)
     args = ap.parse_args()
