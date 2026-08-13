@@ -98,9 +98,22 @@ def _rating(s):
         return 0.0
 
 
+def _image_map():
+    """url -> og:image, from the bundled crawl (data/chiefeater_images.json),
+    so entry photos bake into the core and ship to the cloud with the data."""
+    import json
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "data", "chiefeater_images.json")
+    try:
+        return json.load(open(p))
+    except (ValueError, OSError):
+        return {}
+
+
 def run(wb_path, batch=256):
     embedder = ingest.get_embedder()
     coll = ingest.get_collection()
+    img_map = _image_map()
     # CORE REBUILD: the curated Master List is the source of truth. Purge every
     # scraped chunk, keeping only Michelin authority and community member
     # reviews; the Eat List rows are then rebuilt fresh below.
@@ -123,7 +136,7 @@ def run(wb_path, batch=256):
             "city": r["city"] or r["area"],
             "url": r["url"],
             "title": r["name"],
-            "image": "",
+            "image": img_map.get(r["url"], ""),
             "priority": 1,
             "cuisine": r["cuisine"],
             "food_type": r["food_type"],

@@ -607,14 +607,17 @@ def card_html(a) -> str:
     acc = facets.accolade_tier(a)
     ribbon = f"<div class='pribbon'>{acc}</div>" if acc in facets._MICHELIN else ""
     title = a.get("title", "") or "—"
-    tlink = (f"<a href='{url}' target='_blank'>{title}</a>"
-             if str(url).startswith("http") else title)
-    maps = a.get("maps", "")
-    directions = (f"<div class='pdir'><a href='{maps}' target='_blank'>Directions</a></div>"
-                  if maps else "")
+    has_review = str(url).startswith("http")
+    tlink = f"<a href='{url}' target='_blank'>{title}</a>" if has_review else title
+    links = []
+    if has_review:
+        links.append(f"<a href='{url}' target='_blank'>Read review →</a>")
+    if a.get("maps"):
+        links.append(f"<a href='{a['maps']}' target='_blank'>Directions</a>")
+    linkrow = f"<div class='pdir'>{' · '.join(links)}</div>" if links else ""
     return (f"<div class='pcard'><div class='pthumb'>{ribbon}{thumb_inner(a)}</div>"
             f"<div class='pbody'><div class='ptitle'>{tlink}</div>"
-            f"<div class='pmeta'>{chips_html(a)}</div>{directions}</div></div>")
+            f"<div class='pmeta'>{chips_html(a)}</div>{linkrow}</div></div>")
 
 
 def _toggle_save(a):
@@ -635,17 +638,8 @@ def render_grid(items, key_prefix, cols=3):
                 st.markdown(card_html(a), unsafe_allow_html=True)
                 kk = f"{key_prefix}_{i + j}"          # globally unique per card
                 saved = a.get("url", "") in SAVED
-                if is_thin(a):
-                    b1, b2 = st.columns(2)
-                    if b1.button("Saved" if saved else "Save", key=f"gsv_{kk}",
-                                 use_container_width=True):
-                        _toggle_save(a)
-                        st.rerun()
-                    if b2.button("Verify", key=f"gvf_{kk}", use_container_width=True):
-                        st.session_state["verify_place"] = a.get("title", "")
-                        st.toast("Add the details under Contribute to verify this listing.")
-                elif st.button("Saved" if saved else "Save", key=f"gsv_{kk}",
-                               use_container_width=True):
+                if st.button("Saved" if saved else "Save", key=f"gsv_{kk}",
+                             use_container_width=True):
                     _toggle_save(a)
                     st.rerun()
 
