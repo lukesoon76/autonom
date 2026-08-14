@@ -20,9 +20,14 @@ MARKER = os.path.join(os.environ.get("AUTONOM_DATA_DIR", REPO), "core_version.tx
 
 def _hash() -> str:
     h = hashlib.sha256()
-    with open(WB, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
+    # workbook + the baked image map — so a photo refresh also triggers a re-sync
+    for p in (WB, os.path.join(REPO, "data", "chiefeater_images.json")):
+        try:
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+        except OSError:
+            pass
     return h.hexdigest()
 
 
