@@ -96,11 +96,24 @@ def places_photo(name: str, address: str, key: str) -> str:
         return ""
 
 
-def enrich_one(m, key=None) -> str:
+def _curated(m) -> bool:
+    """The premium tier — accolade, authority pick, or strong rating. Google
+    Places (billed) is limited to these by default to cap cost."""
+    if (m.get("accolades") or "").strip():
+        return True
+    if m.get("source") == "Authority":
+        return True
+    try:
+        return float(m.get("rating") or 0) >= 4.4
+    except (TypeError, ValueError):
+        return False
+
+
+def enrich_one(m, key=None, use_places=True) -> str:
     """Best available photo URL for one entry (og:image → Google Places)."""
     url = m.get("url", "")
     img = og_image(url) if url.startswith("http") else ""
-    if not img:
+    if not img and use_places:
         img = places_photo(m.get("title", ""),
                            m.get("address", "") or m.get("city", ""),
                            key or os.environ.get("GOOGLE_MAPS_API_KEY", "").strip())
@@ -109,6 +122,10 @@ def enrich_one(m, key=None) -> str:
 
 def warm(limit: int) -> int:
     key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    # by default, Google Places (billed) only photographs the curated tier
+    # (~few hundred entries, well within the free credit); set AUTONOM_PLACES_SCOPE
+    # =all to photograph the whole corpus (much larger bill).
+    places_all = os.environ.get("AUTONOM_PLACES_SCOPE", "curated") == "all"
     metas = ingest.get_collection().get(include=["metadatas"]).get("metadatas", []) or []
     cache = _load()
     done = 0
@@ -118,9 +135,10 @@ def warm(limit: int) -> int:
         k = _key(m)
         if k in cache or (m.get("image") or "").strip():
             continue
-        if not str(m.get("url", "")).startswith("http") and not key:
-            continue                              # nothing to try without a URL or key
-        img = enrich_one(m, key)
+        use_places = bool(key) and (places_all or _curated(m))
+        if not str(m.get("url", "")).startswith("http") and not use_places:
+            continue                              # nothing to try (no URL, no Places)
+        img = enrich_one(m, key, use_places)
         cache[k] = img                            # cache even '' to avoid re-hitting
         done += 1
         if done % 15 == 0:
