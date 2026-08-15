@@ -19,10 +19,13 @@ _lock = threading.Lock()
 
 def _loop(hour_utc: int):
     # optional one-shot shortly after boot (off by default to avoid hammering
-    # the API on repeated redeploys)
+    # the API on repeated redeploys). Photos run FIRST and after only a short
+    # delay — they're the most visible thing on a card, and must not sit behind
+    # the slow Instagram pull + hundreds of GenAI tag calls.
     if os.getenv("AUTONOM_REFRESH_ON_BOOT"):
-        time.sleep(90)
-        _run_safe()
+        time.sleep(20)
+        _warm_photos()
+        _run_safe(skip_photos=True)
     while True:
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=hour_utc, minute=0, second=0, microsecond=0)
@@ -32,26 +35,33 @@ def _loop(hour_utc: int):
         _run_safe()
 
 
-def _run_safe():
-    # 1) pull new Instagram posts into the core
+def _warm_photos():
+    # fill missing photos (og:image free; Google Places needs GOOGLE_MAPS_API_KEY)
+    try:
+        import images
+        n = images.warm(int(os.getenv("AUTONOM_WARM_PHOTOS", "120")))
+        print(f"[cloud_refresh] photo-warm processed {n} entries")
+    except Exception as e:                          # never let the thread die
+        print(f"[cloud_refresh] photo-warm error: {type(e).__name__}: {e}")
+
+
+def _run_safe(skip_photos=False):
+    # 1) photos first (unless already warmed on boot) — most visible payload
+    if not skip_photos:
+        _warm_photos()
+    # 2) pull new Instagram posts into the core
     try:
         import ig_cloud
         _, msg = ig_cloud.run()
         print(f"[cloud_refresh] {msg}")
-    except Exception as e:                          # never let the thread die
+    except Exception as e:
         print(f"[cloud_refresh] ig error: {type(e).__name__}: {e}")
-    # 2) fill missing GenAI tags (needs ANTHROPIC_API_KEY)
+    # 3) fill missing GenAI tags (needs ANTHROPIC_API_KEY)
     try:
         import ai_tags
         ai_tags.warm(int(os.getenv("AUTONOM_WARM_TAGS", "120")))
     except Exception as e:
         print(f"[cloud_refresh] tag-warm error: {type(e).__name__}: {e}")
-    # 3) fill missing photos (og:image free; Google Places needs GOOGLE_MAPS_API_KEY)
-    try:
-        import images
-        images.warm(int(os.getenv("AUTONOM_WARM_PHOTOS", "120")))
-    except Exception as e:
-        print(f"[cloud_refresh] photo-warm error: {type(e).__name__}: {e}")
 
 
 def start():
